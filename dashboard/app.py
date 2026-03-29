@@ -11,6 +11,7 @@ Usage::
 import time
 import argparse
 import os
+import hmac
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
@@ -88,7 +89,12 @@ def step_agent(env: SocialGuardEnv, agent):
     else:
         action = agent.act(obs)
         
-    obs, reward, terminated, truncated, info = env.step(action)
+    try:
+        obs, reward, terminated, truncated, info = env.step(action)
+    except Exception as e:
+        st.session_state.running = False
+        st.error(f"env.step() failed: {e}")
+        return
     
     st.session_state.obs = obs
     st.session_state.terminated = terminated
@@ -133,7 +139,7 @@ def main():
     dashboard_token = os.environ.get("SOCIALGUARD_DASHBOARD_TOKEN", "").strip()
     if dashboard_token:
         provided = st.sidebar.text_input("Dashboard Token", type="password")
-        if provided.strip() != dashboard_token:
+        if not hmac.compare_digest(provided.strip(), dashboard_token):
             st.sidebar.error("Invalid token.")
             st.stop()
     else:

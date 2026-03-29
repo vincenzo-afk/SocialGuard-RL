@@ -44,6 +44,13 @@ class SocialGraph:
         self._inter_density: float = float(graph_cfg["inter_cluster_density"])
         self._embedding_dim: int = int(graph_cfg["embedding_dim"])
 
+        if self._num_nodes < 2:
+            raise ValueError("graph_cfg['num_nodes'] must be >= 2.")
+        if self._bot_cluster_size < 0 or self._bot_cluster_size >= self._num_nodes:
+            raise ValueError("graph_cfg['bot_cluster_size'] must be in [0, num_nodes-1].")
+        if self._embedding_dim <= 0:
+            raise ValueError("graph_cfg['embedding_dim'] must be > 0.")
+
         self._rng: np.random.RandomState = np.random.RandomState(seed)
         self._seed: int | None = seed
 

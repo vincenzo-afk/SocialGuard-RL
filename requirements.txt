@@ -9,7 +9,7 @@ numpy>=1.24.0,<2.0
 networkx>=3.0,<4.0
 
 # Graph embeddings (Task 3)
-node2vec>=0.4.6,<1.0
+node2vec>=0.4.6,<0.5
 
 # Training
 stable-baselines3>=2.0.0,<3.0

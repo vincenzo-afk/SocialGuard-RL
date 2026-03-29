@@ -191,7 +191,7 @@ class SocialGuardEnv(gym.Env):
             raise RuntimeError("reset() must be called before step().")
 
         # Validate action is in the global action space
-        if not self.action_space.contains(int(action)):
+        if not self.action_space.contains(np.array(action, dtype=np.int64)):
             raise ValueError(f"Action {action} is not in action_space {self.action_space}")
 
         # Collect context for reward computation
@@ -251,6 +251,8 @@ class SocialGuardEnv(gym.Env):
             "ground_truth": int(gt),
             "reward": float(reward),
         })
+        if len(self._decision_history) > 10_000:
+            self._decision_history = self._decision_history[-10_000:]
 
         # Next observation (zeros if done)
         if terminated or truncated:
@@ -300,6 +302,18 @@ class SocialGuardEnv(gym.Env):
         self._env_cfg = self._cfg.get("env", self._env_cfg)
         self._task_cfg = self._cfg.get("task", self._task_cfg)
         self._reward_cfg = self._cfg.get("reward", self._reward_cfg)
+
+        # Best-effort: apply relevant overrides to an already-instantiated task.
+        if self._task is not None:
+            try:
+                env_patch = overrides.get("env", {})
+                if isinstance(env_patch, dict) and "max_steps" in env_patch and hasattr(self._task, "_max_steps"):
+                    self._task._max_steps = int(env_patch["max_steps"])
+                task_patch = overrides.get("task", {})
+                if isinstance(task_patch, dict) and "action_space" in task_patch and hasattr(self._task, "_allowed_actions"):
+                    self._task._allowed_actions = list(task_patch["action_space"])
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Custom public method
@@ -383,8 +397,11 @@ class SocialGuardEnv(gym.Env):
         action_name = info.get("action_name", "?")
         gt = info.get("ground_truth", "?")
         reward = info.get("reward_breakdown", {}).get("total", 0.0)
-        print(
-            f"[Step {self._episode_step:4d}] "
-            f"action={action_name:<13} gt={'bot' if gt else 'human':<5} "
-            f"reward={reward:+.3f}  cumR={self._cumulative_reward:+.3f}"
+        logger.info(
+            "[Step %4d] action=%-13s gt=%-5s reward=%+.3f cumR=%+.3f",
+            self._episode_step,
+            action_name,
+            ("bot" if gt else "human"),
+            float(reward),
+            float(self._cumulative_reward),
         )

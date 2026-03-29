@@ -22,6 +22,8 @@ Blueprint note (Section 12 — pitfall):
 from __future__ import annotations
 
 import logging
+import os
+import hashlib
 from typing import Any
 
 import numpy as np
@@ -123,14 +125,42 @@ class TaskCIB(BaseTask):
             float(self._graph_cfg.get("inter_cluster_density", 0.0)),
             int(self._embedding_dim),
         )
-        if cache_key in _NODE2VEC_CACHE:
-            self._embeddings = _NODE2VEC_CACHE[cache_key]
-        else:
-            self._embeddings = self._compute_embeddings(seed=seed)
-            _NODE2VEC_CACHE[cache_key] = self._embeddings
-            # Keep cache bounded (avoid unbounded RAM growth in long runs)
-            if len(_NODE2VEC_CACHE) > 2:
-                _NODE2VEC_CACHE.pop(next(iter(_NODE2VEC_CACHE)))
+
+        cache_dir = os.environ.get("SOCIALGUARD_NODE2VEC_CACHE_DIR", "").strip()
+        disk_loaded = False
+        if cache_dir:
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                digest = hashlib.sha256(repr(cache_key).encode("utf-8")).hexdigest()[:16]
+                cache_path = os.path.join(cache_dir, f"embeddings_{digest}.npz")
+                if os.path.exists(cache_path):
+                    data = np.load(cache_path)
+                    nodes = data["nodes"].astype(int).tolist()
+                    mat = data["embeddings"].astype(np.float32)
+                    self._embeddings = {int(n): mat[i] for i, n in enumerate(nodes)}
+                    disk_loaded = True
+            except Exception:
+                disk_loaded = False
+
+        if not disk_loaded:
+            if cache_key in _NODE2VEC_CACHE:
+                self._embeddings = _NODE2VEC_CACHE[cache_key]
+            else:
+                self._embeddings = self._compute_embeddings(seed=seed)
+                _NODE2VEC_CACHE[cache_key] = self._embeddings
+                # Keep cache bounded (avoid unbounded RAM growth in long runs)
+                if len(_NODE2VEC_CACHE) > 2:
+                    _NODE2VEC_CACHE.pop(next(iter(_NODE2VEC_CACHE)))
+
+            if cache_dir:
+                try:
+                    digest = hashlib.sha256(repr(cache_key).encode("utf-8")).hexdigest()[:16]
+                    cache_path = os.path.join(cache_dir, f"embeddings_{digest}.npz")
+                    nodes = np.array(sorted(self._embeddings.keys()), dtype=np.int64)
+                    mat = np.stack([self._embeddings[int(n)] for n in nodes], axis=0).astype(np.float32)
+                    np.savez_compressed(cache_path, nodes=nodes, embeddings=mat)
+                except Exception:
+                    pass
         self._embeddings_stale = False
 
         # Build shuffled presentation order (all nodes)
@@ -317,12 +347,22 @@ class TaskCIB(BaseTask):
             seed=seed if seed is not None else 42,
             quiet=True,
         )
-        model = n2v.fit(
-            window=5,
-            min_count=1,
-            batch_words=4,
-            epochs=5,
-        )
+        try:
+            model = n2v.fit(
+                window=5,
+                min_count=1,
+                batch_words=4,
+                epochs=5,
+            )
+        except TypeError as exc:
+            logger.warning(
+                "node2vec.fit() signature mismatch; using zero embeddings. (%s)",
+                exc,
+            )
+            return {
+                int(node): np.zeros(self._embedding_dim, dtype=np.float32)
+                for node in self._graph.graph.nodes()
+            }
 
         embeddings: dict[int, np.ndarray] = {}
         for node in self._graph.graph.nodes():
