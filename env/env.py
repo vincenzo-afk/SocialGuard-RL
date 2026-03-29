@@ -186,9 +186,8 @@ class SocialGuardEnv(gym.Env):
             raise RuntimeError("reset() must be called before step().")
 
         # Validate action is in the global action space
-        assert self.action_space.contains(np.int64(action)), (
-            f"Action {action} is not in action_space {self.action_space}"
-        )
+        if not self.action_space.contains(np.int64(action)):
+            raise ValueError(f"Action {action} is not in action_space {self.action_space}")
 
         # Collect context for reward computation
         gt: int = self._task.get_ground_truth()
@@ -283,11 +282,17 @@ class SocialGuardEnv(gym.Env):
             Dict with timestep, cumulative_reward, decision_history, task info.
         """
         task_info: dict[str, Any] = self._task.get_info() if self._task else {}
+        task_name = (
+            str(self._task.task_name)
+            if self._task is not None and hasattr(self._task, "task_name")
+            else str(self._task_cfg.get("name", "unknown"))
+        )
         return {
             "timestep": int(self._timestep),
             "episode_step": int(self._episode_step),
             "cumulative_reward": float(self._cumulative_reward),
-            "task_name": self._task_cfg.get("name", "unknown"),
+            "task_name": task_name,
+            "active_task": task_name,
             "decision_history": list(self._decision_history),
             **{k: (v.tolist() if isinstance(v, np.ndarray) else v)
                for k, v in task_info.items()},

@@ -13,7 +13,7 @@ node2vec>=0.4.6
 
 # Training
 stable-baselines3>=2.0.0,<3.0
-torch>=2.0.0
+torch>=2.0.0,<3.0
 
 # Visualization & Dashboard
 streamlit>=1.30.0

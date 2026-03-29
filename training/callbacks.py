@@ -34,16 +34,26 @@ class TensorboardCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         """Called by SB3 at each step. Logs metrics on episode boundaries."""
-        # Ensure we have access to the info dicts from the vectorized env
-        if "info" not in self.locals:
+        # SB3 uses `infos` (plural) for VecEnv; keep a fallback for older code.
+        infos = self.locals.get("infos", None)
+        if infos is None:
+            infos = self.locals.get("info", None)
+        if infos is None:
             return True
 
-        infos = self.locals["info"]
-        dones = self.locals["dones"]
+        dones = self.locals.get("dones", None)
+        if dones is None:
+            dones = self.locals.get("done", None)
+        if dones is None:
+            return True
+
+        if isinstance(dones, (bool, np.bool_)):
+            dones = [bool(dones)]
+            infos = [infos]
 
         for i, done in enumerate(dones):
             if done:
-                info = infos[i]
+                info = infos[i] if isinstance(infos, (list, tuple)) else infos
 
                 # 1. Log reward breakdown if present
                 if "reward_breakdown" in info:

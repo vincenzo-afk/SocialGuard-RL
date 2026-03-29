@@ -53,6 +53,11 @@ class SocialGraph:
         self._real_nodes: set[int] = set()
         self._node_attrs: dict[int, dict[str, Any]] = {}
 
+        # Expensive derived-structure cache (computed lazily)
+        self._communities_dirty: bool = True
+        self._communities_cache: list[frozenset[int]] = []
+        self._community_index_by_node: dict[int, int] = {}
+
         self._generate()
 
     # ------------------------------------------------------------------
@@ -116,8 +121,8 @@ class SocialGraph:
         Returns:
             List of frozensets, each containing node IDs in that community.
         """
-        communities = nx.community.greedy_modularity_communities(self._graph)
-        return [frozenset(c) for c in communities]
+        self._ensure_communities_cache()
+        return list(self._communities_cache)
 
     def remove_node(self, node_id: int) -> None:
         """Remove a node from the graph and all internal tracking sets.
@@ -134,6 +139,7 @@ class SocialGraph:
         self._bot_nodes.discard(node_id)
         self._real_nodes.discard(node_id)
         self._node_attrs.pop(node_id, None)
+        self._communities_dirty = True
         logger.debug("Removed node %d from graph and all sets.", node_id)
 
     def tick(self) -> None:
@@ -162,6 +168,8 @@ class SocialGraph:
                     added += 1
             attempts += 1
 
+        if added > 0:
+            self._communities_dirty = True
         logger.debug("tick(): added %d new edges.", added)
 
     def get_graph_features(self, node_id: int) -> dict[str, float]:
@@ -174,6 +182,9 @@ class SocialGraph:
             Dict with degree_centrality, clustering_coefficient,
             community_assignment, posts_per_hour_normalized.
         """
+        if node_id not in self._graph:
+            raise KeyError(f"Node {node_id} not in graph.")
+
         n = self._graph.number_of_nodes()
         degree = self._graph.degree(node_id)
         degree_centrality = degree / max(n - 1, 1)
@@ -181,12 +192,9 @@ class SocialGraph:
         clustering = nx.clustering(self._graph, node_id)
 
         # Community assignment: normalized index from greedy communities
-        communities = list(nx.community.greedy_modularity_communities(self._graph))
-        community_idx = 0.0
-        for i, comm in enumerate(communities):
-            if node_id in comm:
-                community_idx = i / max(len(communities) - 1, 1)
-                break
+        self._ensure_communities_cache()
+        comm_i = self._community_index_by_node.get(node_id, 0)
+        community_idx = comm_i / max(len(self._communities_cache) - 1, 1)
 
         # Activity → posts_per_hour normalised to [0, 1]
         activity = self._node_attrs[node_id].get("activity_score", 0.5)
@@ -198,6 +206,21 @@ class SocialGraph:
             "community_assignment": float(community_idx),
             "posts_per_hour_normalized": pph_norm,
         }
+
+    def _ensure_communities_cache(self) -> None:
+        if not self._communities_dirty:
+            return
+
+        communities = nx.community.greedy_modularity_communities(self._graph)
+        frozen = [frozenset(c) for c in communities]
+        index_by_node: dict[int, int] = {}
+        for i, comm in enumerate(frozen):
+            for nid in comm:
+                index_by_node[int(nid)] = i
+
+        self._communities_cache = frozen
+        self._community_index_by_node = index_by_node
+        self._communities_dirty = False
 
     # ------------------------------------------------------------------
     # Private generation
@@ -234,6 +257,7 @@ class SocialGraph:
 
         # Write attrs into the networkx graph for interop
         nx.set_node_attributes(self._graph, self._node_attrs)
+        self._communities_dirty = True
 
         logger.info(
             "SocialGraph generated: %d nodes (%d real, %d bots), %d edges",

@@ -279,10 +279,15 @@ class TaskCIB(BaseTask):
         try:
             from node2vec import Node2Vec
         except ImportError as exc:
-            raise ImportError(
-                "node2vec is required for Task 3. "
-                "Install with: pip install node2vec"
-            ) from exc
+            logger.warning(
+                "node2vec is not installed; using zero embeddings for TaskCIB. "
+                "Install with: pip install node2vec. (%s)",
+                exc,
+            )
+            return {
+                int(node): np.zeros(self._embedding_dim, dtype=np.float32)
+                for node in self._graph.graph.nodes()
+            }
 
         logger.info("Computing node2vec embeddings (%d nodes)…", self._graph.num_nodes)
 
