@@ -1,5 +1,3 @@
-# Create .gitignore so you don't push junk
-cat > .gitignore << 'EOF'
 __pycache__/
 *.pyc
 *.pyo
@@ -13,4 +11,4 @@ build/
 .ruff_cache/
 *.log
 node_modules/
-EOF
+bugs.txt

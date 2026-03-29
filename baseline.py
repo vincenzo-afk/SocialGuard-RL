@@ -163,7 +163,6 @@ def run_evaluation(
 
             gt = info["ground_truth"]
             act = info["action_taken"]
-            from env.spaces import ACTION_REMOVE
             if gt == 1 and act == ACTION_REMOVE:
                 tp_total += 1
             elif gt == 0 and act == ACTION_REMOVE:

@@ -160,14 +160,13 @@ def main():
 
     # Metric Cards Placeholder
     metric_placeholder = st.empty()
-    metric_placeholder.write(
+    with metric_placeholder:
         render_metrics_cards(
             st.session_state.ep_reward,
             st.session_state.tp,
             st.session_state.fp,
-            st.session_state.step
+            st.session_state.step,
         )
-    )
 
     t1, t2 = st.tabs(["Dashboard", "Network Graph"])
 
@@ -175,6 +174,7 @@ def main():
         log_placeholder = st.empty()
         with log_placeholder:
             render_decision_log(list(reversed(st.session_state.log[-50:])))
+        render_reward_chart(st.session_state.rewards)
             
     with t2:
         graph_placeholder = st.empty()
@@ -192,7 +192,8 @@ def main():
             G = nx.fast_gnp_random_graph(20, 0.1)
             html = generate_graph_html(G, decision_log=st.session_state.decision_log)
             # Actually Pyvis is handled here
-            graph_placeholder.components.html(html, height=620)
+            with graph_placeholder:
+                components.html(html, height=620)
         except Exception:
             st.warning("Could not render internal graph.")
 
