@@ -9,6 +9,7 @@ step without crashing.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import yaml
 import pytest
@@ -62,14 +63,14 @@ def test_train_ppo_smoke(tiny_config_path: str) -> None:
     run_name = "test_ppo"
     out_dir = tempfile.mkdtemp()
     test_args = [
-        "python", "-m", "training.train_ppo",
+        sys.executable, "-m", "training.train_ppo",
         "--config", tiny_config_path,
         "--run_name", run_name,
         "--output_dir", out_dir,
         "--device", "cpu"
     ]
     import subprocess
-    result = subprocess.run(test_args)
+    result = subprocess.run(test_args, timeout=120)
     assert result.returncode == 0, "PPO training crashed"
     
     # Verify outputs were created
@@ -81,14 +82,14 @@ def test_train_dqn_smoke(tiny_config_path: str) -> None:
     run_name = "test_dqn"
     out_dir = tempfile.mkdtemp()
     test_args = [
-        "python", "-m", "training.train_dqn",
+        sys.executable, "-m", "training.train_dqn",
         "--config", tiny_config_path,
         "--run_name", run_name,
         "--output_dir", out_dir,
         "--device", "cpu"
     ]
     import subprocess
-    result = subprocess.run(test_args)
+    result = subprocess.run(test_args, timeout=120)
     assert result.returncode == 0, "DQN training crashed"
     
     # Verify outputs were created

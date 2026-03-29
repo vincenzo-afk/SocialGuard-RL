@@ -75,6 +75,39 @@ class TensorboardCallback(BaseCallback):
         return True
 
 
+class CurriculumCallback(BaseCallback):
+    """Applies curriculum overrides to the training env on timestep milestones."""
+
+    def __init__(self, schedule: list[tuple[int, dict[str, Any]]], verbose: int = 0) -> None:
+        super().__init__(verbose)
+        self._schedule = sorted(((int(t), o) for t, o in schedule), key=lambda x: x[0])
+        self._current_phase: int = -1
+
+    def _on_training_start(self) -> None:
+        self._maybe_apply()
+
+    def _on_step(self) -> bool:
+        self._maybe_apply()
+        return True
+
+    def _maybe_apply(self) -> None:
+        # Find latest phase whose threshold <= current timesteps.
+        next_phase = self._current_phase
+        for i, (t, _) in enumerate(self._schedule):
+            if self.num_timesteps >= t:
+                next_phase = i
+        if next_phase == self._current_phase or next_phase < 0:
+            return
+
+        _, overrides = self._schedule[next_phase]
+        try:
+            self.training_env.env_method("apply_overrides", overrides)
+            self._current_phase = next_phase
+            logger.info("Curriculum phase -> %d (t=%d)", self._current_phase, self.num_timesteps)
+        except Exception as exc:
+            logger.warning("Failed to apply curriculum overrides: %s", exc)
+
+
 def create_eval_callback(
     eval_env: VecEnv,
     eval_freq: int = 10000,

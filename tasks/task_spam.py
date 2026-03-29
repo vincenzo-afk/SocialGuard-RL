@@ -22,6 +22,8 @@ from env.spaces import (
     TASK1_FEATURE_NAMES,
     TASK1_OBS_DIM,
     pad_observation,
+    IDX_ACCOUNT_AGE,
+    IDX_POSTS_PER_HOUR,
 )
 from sim.user_behavior import HumanBehavior, BotBehavior
 from tasks.base_task import BaseTask
@@ -60,6 +62,7 @@ class TaskSpam(BaseTask):
         self._legitimacy_score: float = 0.5
         self._rng: np.random.RandomState = np.random.RandomState()
         self._escalation_count: int = 0
+        self._collateral_count: int = 0
 
     # ------------------------------------------------------------------
     # BaseTask interface
@@ -77,6 +80,7 @@ class TaskSpam(BaseTask):
         self._reset_step_count()
         self._current_idx = 0
         self._escalation_count = 0
+        self._collateral_count = 0
 
         # Build queue of accounts for this episode
         n_accounts: int = self._max_steps
@@ -142,6 +146,10 @@ class TaskSpam(BaseTask):
         """Return number of escalate actions taken this episode."""
         return self._escalation_count
 
+    def get_collateral_count(self) -> int:
+        """Return number of real accounts removed this episode."""
+        return self._collateral_count
+
     def is_done(self) -> bool:
         """Return True when the account queue is exhausted."""
         return self._current_idx >= len(self._queue)
@@ -166,9 +174,11 @@ class TaskSpam(BaseTask):
         Args:
             action: Integer action ID taken by the agent.
         """
-        from env.spaces import ACTION_ESCALATE
+        from env.spaces import ACTION_ESCALATE, ACTION_REMOVE
         if action == ACTION_ESCALATE and ACTION_ESCALATE in self._allowed_actions:
             self._escalation_count += 1
+        if action == ACTION_REMOVE and self._current_gt == 0:
+            self._collateral_count += 1
 
         self._increment_step()
         self._current_idx += 1
@@ -189,6 +199,9 @@ class TaskSpam(BaseTask):
         raw = np.array(
             [features_dict[k] for k in TASK1_FEATURE_NAMES], dtype=np.float32
         )
+        # Normalise large-range features into [0, 1] to match ObservationSpace bounds.
+        raw[IDX_ACCOUNT_AGE] = float(np.clip(raw[IDX_ACCOUNT_AGE] / 3650.0, 0.0, 1.0))
+        raw[IDX_POSTS_PER_HOUR] = float(np.clip(raw[IDX_POSTS_PER_HOUR] / 200.0, 0.0, 1.0))
         self._current_obs = raw
         self._current_gt = int(entry["is_bot"])
         self._legitimacy_score = float(entry["legitimacy_score"])

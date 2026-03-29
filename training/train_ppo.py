@@ -18,7 +18,8 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 
 from env.env import SocialGuardEnv
-from training.callbacks import TensorboardCallback, create_eval_callback
+from training.callbacks import TensorboardCallback, CurriculumCallback, create_eval_callback
+from training.curriculum import task_cib_default_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ def main() -> None:
     parser.add_argument("--output_dir", type=str, default="models/")
     parser.add_argument("--n_envs", type=int, default=1)
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument("--curriculum", action="store_true", help="Enable task-specific curriculum (Task 3).")
     args = parser.parse_args()
 
     # Create directories
@@ -63,6 +65,7 @@ def main() -> None:
         
     train_cfg = cfg.get("training", {})
     env_cfg = cfg.get("env", {})
+    task_name = str(cfg.get("task", {}).get("name", "task_spam"))
     
     # Extract standard hyperparams (no magic numbers!)
     total_timesteps = int(train_cfg.get("total_timesteps", 100000))
@@ -75,14 +78,20 @@ def main() -> None:
     n_eval_episodes = int(train_cfg.get("n_eval_episodes", 20))
 
     # 2. Build vectorized environment
-    def make_env() -> SocialGuardEnv:
-        return SocialGuardEnv(merged_config_path)
+    def make_env(rank: int) -> callable:
+        def _init() -> SocialGuardEnv:
+            return SocialGuardEnv(merged_config_path, seed_offset=rank)
+        return _init
 
-    vec_env_cls = SubprocVecEnv if args.n_envs > 1 else DummyVecEnv
-    env = vec_env_cls([make_env for _ in range(args.n_envs)])
+    if args.n_envs > 1 and task_name == "task_cib":
+        logger.warning("task_cib detected: forcing DummyVecEnv to avoid SubprocVecEnv pickling issues.")
+        vec_env_cls = DummyVecEnv
+    else:
+        vec_env_cls = SubprocVecEnv if args.n_envs > 1 else DummyVecEnv
+    env = vec_env_cls([make_env(i) for i in range(args.n_envs)])
     
     # 3. Build evaluation environment
-    eval_env = vec_env_cls([make_env])
+    eval_env = DummyVecEnv([make_env(10_000)])
     eval_callback = create_eval_callback(
         eval_env,
         eval_freq=eval_freq // args.n_envs,
@@ -92,6 +101,13 @@ def main() -> None:
     )
     
     cbs = [TensorboardCallback(), eval_callback]
+    if args.curriculum and task_name == "task_cib":
+        schedule = task_cib_default_schedule(
+            total_timesteps=total_timesteps,
+            final_env_cfg=env_cfg,
+            final_graph_cfg=cfg.get("graph", {}),
+        )
+        cbs.insert(0, CurriculumCallback(schedule))
 
     # 4. Initialize PPO
     model = PPO(

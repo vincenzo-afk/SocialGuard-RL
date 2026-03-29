@@ -20,10 +20,17 @@ from env.spaces import ACTION_REMOVE
 logger = logging.getLogger(__name__)
 
 
-class Policy(Protocol):
-    """Protocol for an agent policy (baseline or SB3 model)."""
+class SB3Policy(Protocol):
+    """Protocol for Stable-Baselines3 style policies."""
     def predict(self, obs: np.ndarray, deterministic: bool = True) -> tuple[np.ndarray | int, Any]: ...
+
+
+class BaselinePolicy(Protocol):
+    """Protocol for baseline policies."""
     def act(self, obs: np.ndarray) -> int: ...
+
+
+Policy = SB3Policy | BaselinePolicy
 
 
 class Grader:
