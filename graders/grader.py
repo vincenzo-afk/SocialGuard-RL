@@ -73,7 +73,8 @@ class Grader:
             ep_reward: float = 0.0
             ep_steps: int = 0
             ep_tp_added = False
-            
+            episode_gt: int | None = None
+             
             terminated = truncated = False
             while not (terminated or truncated):
                 if hasattr(agent, "predict"):
@@ -92,15 +93,24 @@ class Grader:
 
                 gt = step_info["ground_truth"]
                 act = step_info["action_taken"]
-                
+                if episode_gt is None:
+                    episode_gt = int(gt)
+                 
                 if gt == 1:
                     if act == ACTION_REMOVE:
                         metrics[task_name]["tp"] += 1
                         if not ep_tp_added:
-                            metrics[task_name]["detection_times"].append(step_info["episode_step"])
+                            if task_name == "task_misinfo":
+                                metrics[task_name]["detection_times"].append(
+                                    int(step_info.get("hop_count", step_info["episode_step"]))
+                                )
+                            else:
+                                metrics[task_name]["detection_times"].append(step_info["episode_step"])
                             ep_tp_added = True
                     else:
-                        metrics[task_name]["fn"] += 1
+                        # Task 2 (misinfo) presents the same entity across steps; FN is episode-level.
+                        if task_name != "task_misinfo":
+                            metrics[task_name]["fn"] += 1
                 else:
                     if act == ACTION_REMOVE:
                         metrics[task_name]["fp"] += 1
@@ -110,6 +120,10 @@ class Grader:
 
                 if (terminated or truncated) and "collateral_count" in step_info:
                     metrics[task_name]["collateral"].append(step_info["collateral_count"])
+
+            # Episode-level FN for Task 2 (misinfo): misinfo that was never removed.
+            if task_name == "task_misinfo" and int(episode_gt or 0) == 1 and not ep_tp_added:
+                metrics[task_name]["fn"] += 1
 
             metrics[task_name]["rewards"].append(ep_reward)
             metrics[task_name]["lengths"].append(ep_steps)

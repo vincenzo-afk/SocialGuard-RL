@@ -19,7 +19,7 @@ from pyvis.network import Network
 from env.spaces import ACTION_ALLOW, ACTION_WARN, ACTION_REDUCE_REACH, ACTION_REMOVE, ACTION_ESCALATE
 
 
-_NETWORK_INIT_RE = re.compile(r"(var\\s+network\\s*=\\s*new\\s+vis\\.Network\\(container,\\s*data,\\s*options\\);)")
+_NETWORK_INIT_RE = re.compile(r"(var\s+network\s*=\s*new\s+vis\.Network\(container,\s*data,\s*options\);)")
 _DECISION_MARKER = "// __SOCIALGUARD_DECISION_UPDATE__"
 
 

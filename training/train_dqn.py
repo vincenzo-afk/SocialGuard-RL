@@ -16,6 +16,7 @@ from typing import Any
 from stable_baselines3 import DQN
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.callbacks import CheckpointCallback
 
 from env.env import SocialGuardEnv
 from training.callbacks import TensorboardCallback, CurriculumCallback, create_eval_callback
@@ -65,6 +66,12 @@ def main() -> None:
 
     train_cfg = cfg.get("training_dqn", cfg.get("training", {}))
     task_name = str(cfg.get("task", {}).get("name", "task_spam"))
+
+    if task_name == "task_cib":
+        os.environ.setdefault(
+            "SOCIALGUARD_NODE2VEC_CACHE_DIR",
+            os.path.join(args.output_dir, args.run_name, "node2vec_cache"),
+        )
     
     # Extract standard hyperparams (no magic numbers!)
     total_timesteps = int(train_cfg.get("total_timesteps", 100000))
@@ -78,6 +85,7 @@ def main() -> None:
     
     eval_freq = int(train_cfg.get("eval_freq", 10000))
     n_eval_episodes = int(train_cfg.get("n_eval_episodes", 20))
+    checkpoint_freq = int(train_cfg.get("checkpoint_freq", 0))
 
     # 2. Build vectorized environment
     def make_env(rank: int) -> callable:
@@ -110,6 +118,10 @@ def main() -> None:
             final_graph_cfg=cfg.get("graph", {}),
         )
         cbs.insert(0, CurriculumCallback(schedule))
+    if checkpoint_freq > 0:
+        ckpt_dir = os.path.join(args.output_dir, args.run_name, "checkpoints")
+        os.makedirs(ckpt_dir, exist_ok=True)
+        cbs.insert(0, CheckpointCallback(save_freq=checkpoint_freq, save_path=ckpt_dir, name_prefix=args.run_name))
 
     # 4. Initialize DQN
     model = DQN(
@@ -128,11 +140,21 @@ def main() -> None:
     )
 
     # 5. Train
-    model.learn(
-        total_timesteps=total_timesteps,
-        callback=cbs,
-        tb_log_name=args.run_name,
-    )
+    try:
+        model.learn(
+            total_timesteps=total_timesteps,
+            callback=cbs,
+            tb_log_name=args.run_name,
+        )
+    finally:
+        try:
+            env.close()
+        except Exception:
+            pass
+        try:
+            eval_env.close()
+        except Exception:
+            pass
 
     # 6. Save final model
     final_path = os.path.join(args.output_dir, args.run_name, "final_model.zip")
