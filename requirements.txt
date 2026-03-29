@@ -1,0 +1,30 @@
+# SocialGuard-RL — Python dependencies
+# Pin minor versions; allow patch updates.
+
+# Core RL environment
+gymnasium>=0.29.0,<1.0
+numpy>=1.24.0,<2.0
+
+# Social graph
+networkx>=3.0,<4.0
+
+# Graph embeddings (Task 3)
+node2vec>=0.4.6
+
+# Training
+stable-baselines3>=2.0.0,<3.0
+torch>=2.0.0
+
+# Visualization & Dashboard
+streamlit>=1.30.0
+pyvis>=0.3.2
+matplotlib>=3.7.0
+
+# Config management
+pyyaml>=6.0
+python-dotenv>=1.0
+
+# Dev & Quality
+pytest>=7.0.0
+black
+ruff

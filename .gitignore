@@ -1,0 +1,16 @@
+# Create .gitignore so you don't push junk
+cat > .gitignore << 'EOF'
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.zip
+models/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+*.log
+node_modules/
+EOF
