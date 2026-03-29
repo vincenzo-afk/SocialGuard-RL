@@ -90,6 +90,25 @@ class BaseTask(ABC):
         """
 
     @abstractmethod
+    def get_legitimacy_score(self) -> float:
+        """Return a legitimacy score in [0, 1] for reward computation."""
+
+    @abstractmethod
+    def get_current_hop(self) -> int:
+        """Return current hop/timestep proxy used for the speed bonus.
+
+        For tasks without a hop concept, return 0.
+        """
+
+    @abstractmethod
+    def get_escalation_count(self) -> int:
+        """Return the number of times ACTION_ESCALATE has been used this episode."""
+
+    @abstractmethod
+    def get_collateral_count(self) -> int:
+        """Return collateral (false positive removal) count for the episode."""
+
+    @abstractmethod
     def is_done(self) -> bool:
         """Return True if the episode should terminate.
 

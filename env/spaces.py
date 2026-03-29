@@ -119,10 +119,6 @@ TASK3_ACTIONS: list[int] = [ACTION_ALLOW, ACTION_WARN, ACTION_REDUCE_REACH, ACTI
 _LOW = np.zeros(OBS_DIM, dtype=np.float32)
 _HIGH = np.ones(OBS_DIM, dtype=np.float32)
 
-# Task 1 overrides
-_HIGH[IDX_ACCOUNT_AGE] = 3650.0
-_HIGH[IDX_POSTS_PER_HOUR] = 200.0
-
 # Task 3 embeddings are in [-1, 1]
 _LOW[:TASK3_EMBEDDING_DIM] = -1.0
 

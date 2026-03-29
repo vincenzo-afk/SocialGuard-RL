@@ -10,6 +10,7 @@ Usage::
 
 import time
 import argparse
+import os
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
@@ -18,16 +19,36 @@ from pathlib import Path
 from env.env import SocialGuardEnv
 from baseline import BaselineAgent
 from env.spaces import ACTION_NAMES, ACTION_REMOVE
-from dashboard.graph_view import generate_graph_html
+from dashboard.graph_view import generate_graph_base_html, apply_decision_log
 from dashboard.metrics_view import render_metrics_cards, render_decision_log, render_reward_chart
 from evaluate import load_model
 
 st.set_page_config(layout="wide", page_title="SocialGuard-RL Dashboard")
 
+def _resolve_trusted_path(path_str: str, trusted_dir: str, suffixes: tuple[str, ...]) -> Path:
+    root = (Path.cwd() / trusted_dir).resolve()
+    p = Path(path_str)
+    p = (Path.cwd() / p).resolve() if not p.is_absolute() else p.resolve()
+    if root not in p.parents:
+        raise ValueError(f"Path must be under `{trusted_dir}/`: {p}")
+    if suffixes and p.suffix.lower() not in suffixes:
+        raise ValueError(f"Path must end with one of {suffixes}: {p}")
+    return p
+
 def get_env(config_path: str) -> SocialGuardEnv:
     """Load env. Caches are possible but environment holds internal state directly."""
-    if "sg_env" not in st.session_state:
-        st.session_state.sg_env = SocialGuardEnv(config_path=config_path)
+    cfg_path = _resolve_trusted_path(config_path, "configs", (".yaml", ".yml"))
+    if (
+        "sg_env" not in st.session_state
+        or st.session_state.get("sg_env_config_path") != str(cfg_path)
+    ):
+        if "sg_env" in st.session_state:
+            try:
+                st.session_state.sg_env.close()
+            except Exception:
+                pass
+        st.session_state.sg_env = SocialGuardEnv(config_path=str(cfg_path))
+        st.session_state.sg_env_config_path = str(cfg_path)
     return st.session_state.sg_env
 
 def init_session_state():
@@ -109,6 +130,15 @@ def main():
     init_session_state()
     
     st.sidebar.title("Configuration")
+    dashboard_token = os.environ.get("SOCIALGUARD_DASHBOARD_TOKEN", "").strip()
+    if dashboard_token:
+        provided = st.sidebar.text_input("Dashboard Token", type="password")
+        if provided.strip() != dashboard_token:
+            st.sidebar.error("Invalid token.")
+            st.stop()
+    else:
+        st.sidebar.warning("No `SOCIALGUARD_DASHBOARD_TOKEN` set (dashboard is unauthenticated).")
+
     model_file = st.sidebar.text_input("Path to Model (.zip)", value="models/ppo_task1.zip")
     config_file = st.sidebar.text_input("Path to Config (.yaml)", value="configs/task1.yaml")
     
@@ -128,7 +158,11 @@ def main():
         st.session_state.running = False
         st.rerun()
 
-    env = get_env(config_file)
+    try:
+        env = get_env(config_file)
+    except Exception as e:
+        st.sidebar.error(f"Invalid config path: {e}")
+        return
     if st.session_state.obs is None:
         st.session_state.obs, _ = env.reset()
 
@@ -138,6 +172,11 @@ def main():
         if agent_type == "Rule-based Baseline":
             agent = BaselineAgent()
         else:
+            try:
+                _ = _resolve_trusted_path(model_file, "models", (".zip",))
+            except Exception as e:
+                st.sidebar.error(f"Invalid model path: {e}")
+                return
             agent = load_model(model_file)
     except Exception as e:
         st.error(f"Failed to load agent: {e}")
@@ -190,7 +229,11 @@ def main():
         try:
             import networkx as nx
             G = nx.fast_gnp_random_graph(20, 0.1)
-            html = generate_graph_html(G, decision_log=st.session_state.decision_log)
+            sig = (int(G.number_of_nodes()), int(G.number_of_edges()))
+            if st.session_state.get("graph_base_sig") != sig:
+                st.session_state.graph_base_html = generate_graph_base_html(G)
+                st.session_state.graph_base_sig = sig
+            html = apply_decision_log(st.session_state.graph_base_html, st.session_state.decision_log)
             # Actually Pyvis is handled here
             with graph_placeholder:
                 components.html(html, height=620)

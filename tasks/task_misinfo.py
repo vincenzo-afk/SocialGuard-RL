@@ -62,6 +62,7 @@ class TaskMisinfo(BaseTask):
         self._current_gt: int = 0       # 1 = misinfo, 0 = legit
         self._legitimacy_score: float = 0.5
         self._escalation_count: int = 0
+        self._collateral_count: int = 0
         self._acted: bool = False       # True once agent takes a decisive action
 
     # ------------------------------------------------------------------
@@ -76,6 +77,7 @@ class TaskMisinfo(BaseTask):
         """
         self._reset_step_count()
         self._escalation_count = 0
+        self._collateral_count = 0
         self._acted = False
 
         # Build a smaller graph for Task 2 (faster episodes)
@@ -134,6 +136,10 @@ class TaskMisinfo(BaseTask):
         """Return escalation count for the current episode."""
         return self._escalation_count
 
+    def get_collateral_count(self) -> int:
+        """Return number of legitimate posts removed this episode."""
+        return self._collateral_count
+
     def is_done(self) -> bool:
         """Return True when spread is complete or agent has acted decisively."""
         if self._content_engine is None:
@@ -167,13 +173,15 @@ class TaskMisinfo(BaseTask):
             return
 
         from env.spaces import ACTION_ESCALATE
-        if action == ACTION_ESCALATE:
+        if action == ACTION_ESCALATE and ACTION_ESCALATE in self._allowed_actions:
             self._escalation_count += 1
 
         # Decisive actions stop the episode
         if action in (ACTION_REMOVE, ACTION_REDUCE_REACH):
             if action == ACTION_REMOVE:
                 self._content_engine.remove_content()
+                if self._current_gt == 0:
+                    self._collateral_count += 1
             self._acted = True
 
         # Always advance spread one tick (even on allow — content keeps moving)

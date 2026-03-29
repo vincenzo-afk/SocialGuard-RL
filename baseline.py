@@ -32,6 +32,7 @@ from env.spaces import (
     ACTION_ALLOW,
     ACTION_WARN,
     ACTION_REMOVE,
+    ACTION_REDUCE_REACH,
     IDX_ACCOUNT_AGE,
     IDX_POSTS_PER_HOUR,
     IDX_FOLLOWER_RATIO,
@@ -40,6 +41,13 @@ from env.spaces import (
     IDX_PROFILE_COMPLETENESS,
     IDX_DEVICE_FINGERPRINT,
     IDX_IP_DIVERSITY,
+    IDX_SPREAD_RATE,
+    IDX_SOURCE_CREDIBILITY,
+    IDX_HOP_COUNT,
+    IDX_TIMESTEP_NORMALIZED,
+    IDX_DEGREE_CENTRALITY,
+    IDX_CLUSTERING_COEFF,
+    IDX_PPH_NORMALIZED,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -95,8 +103,9 @@ class BaselineAgent:
         Returns:
             Suspicion score in [0, 1].
         """
-        pph_norm = min(obs[IDX_POSTS_PER_HOUR] / 200.0, 1.0)
-        age_norm = min(obs[IDX_ACCOUNT_AGE] / 3650.0, 1.0)
+        # Task 1 normalises these into [0, 1] already.
+        pph_norm = float(np.clip(obs[IDX_POSTS_PER_HOUR], 0.0, 1.0))
+        age_norm = float(np.clip(obs[IDX_ACCOUNT_AGE], 0.0, 1.0))
 
         score = (
             0.20 * pph_norm
@@ -111,6 +120,34 @@ class BaselineAgent:
         score = 0.85 * score + 0.15 * (1.0 - age_norm)
         return float(np.clip(score, 0.0, 1.0))
 
+    def _infer_task(self, obs: np.ndarray) -> str:
+        """Infer active task from sparse padding patterns."""
+        if np.any(np.abs(obs[8:]) > 1e-8):
+            return "task_cib"
+        if np.any(np.abs(obs[6:8]) > 1e-8):
+            return "task_spam"
+        return "task_misinfo"
+
+    def _score_task_misinfo(self, obs: np.ndarray) -> float:
+        spread = float(np.clip(obs[IDX_SPREAD_RATE], 0.0, 1.0))
+        source_cred = float(np.clip(obs[IDX_SOURCE_CREDIBILITY], 0.0, 1.0))
+        hop = float(np.clip(obs[IDX_HOP_COUNT], 0.0, 1.0))
+        t = float(np.clip(obs[IDX_TIMESTEP_NORMALIZED], 0.0, 1.0))
+        score = (
+            0.55 * spread
+            + 0.25 * (1.0 - source_cred)
+            + 0.10 * (1.0 - hop)
+            + 0.10 * (1.0 - t)
+        )
+        return float(np.clip(score, 0.0, 1.0))
+
+    def _score_task_cib(self, obs: np.ndarray) -> float:
+        deg = float(np.clip(obs[IDX_DEGREE_CENTRALITY], 0.0, 1.0))
+        clust = float(np.clip(obs[IDX_CLUSTERING_COEFF], 0.0, 1.0))
+        pph = float(np.clip(obs[IDX_PPH_NORMALIZED], 0.0, 1.0))
+        score = 0.45 * deg + 0.35 * clust + 0.20 * pph
+        return float(np.clip(score, 0.0, 1.0))
+
     def act(self, obs: np.ndarray) -> int:
         """Choose a moderation action based on the computed suspicion score.
 
@@ -120,6 +157,22 @@ class BaselineAgent:
         Returns:
             Integer action ID: 0 (allow), 1 (warn), or 3 (remove).
         """
+        task = self._infer_task(obs)
+        if task == "task_misinfo":
+            score = self._score_task_misinfo(obs)
+            if score > self._high:
+                return ACTION_REMOVE
+            if score > self._mid:
+                return ACTION_REDUCE_REACH
+            return ACTION_ALLOW
+        if task == "task_cib":
+            score = self._score_task_cib(obs)
+            if score > self._high:
+                return ACTION_REMOVE
+            if score > self._mid:
+                return ACTION_WARN
+            return ACTION_ALLOW
+
         score = self.compute_suspicion_score(obs)
         if score > self._high:
             return ACTION_REMOVE

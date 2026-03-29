@@ -57,6 +57,8 @@ class SocialGraph:
         self._communities_dirty: bool = True
         self._communities_cache: list[frozenset[int]] = []
         self._community_index_by_node: dict[int, int] = {}
+        self._clustering_dirty: bool = True
+        self._clustering_cache: dict[int, float] = {}
 
         self._generate()
 
@@ -139,7 +141,8 @@ class SocialGraph:
         self._bot_nodes.discard(node_id)
         self._real_nodes.discard(node_id)
         self._node_attrs.pop(node_id, None)
-        self._communities_dirty = True
+        self._community_index_by_node.pop(node_id, None)
+        self._clustering_cache.pop(node_id, None)
         logger.debug("Removed node %d from graph and all sets.", node_id)
 
     def tick(self) -> None:
@@ -168,8 +171,6 @@ class SocialGraph:
                     added += 1
             attempts += 1
 
-        if added > 0:
-            self._communities_dirty = True
         logger.debug("tick(): added %d new edges.", added)
 
     def get_graph_features(self, node_id: int) -> dict[str, float]:
@@ -189,7 +190,8 @@ class SocialGraph:
         degree = self._graph.degree(node_id)
         degree_centrality = degree / max(n - 1, 1)
 
-        clustering = nx.clustering(self._graph, node_id)
+        self._ensure_clustering_cache()
+        clustering = float(self._clustering_cache.get(node_id, 0.0))
 
         # Community assignment: normalized index from greedy communities
         self._ensure_communities_cache()
@@ -221,6 +223,13 @@ class SocialGraph:
         self._communities_cache = frozen
         self._community_index_by_node = index_by_node
         self._communities_dirty = False
+
+    def _ensure_clustering_cache(self) -> None:
+        if not self._clustering_dirty:
+            return
+        coeffs = nx.clustering(self._graph)
+        self._clustering_cache = {int(k): float(v) for k, v in coeffs.items()}
+        self._clustering_dirty = False
 
     # ------------------------------------------------------------------
     # Private generation
@@ -258,6 +267,7 @@ class SocialGraph:
         # Write attrs into the networkx graph for interop
         nx.set_node_attributes(self._graph, self._node_attrs)
         self._communities_dirty = True
+        self._clustering_dirty = True
 
         logger.info(
             "SocialGraph generated: %d nodes (%d real, %d bots), %d edges",

@@ -38,6 +38,8 @@ from tasks.base_task import BaseTask
 
 logger = logging.getLogger(__name__)
 
+_NODE2VEC_CACHE: dict[tuple, dict[int, np.ndarray]] = {}
+
 
 class TaskCIB(BaseTask):
     """Task 3 — CIB network takedown via graph RL.
@@ -112,8 +114,23 @@ class TaskCIB(BaseTask):
         # Generate graph
         self._graph = SocialGraph(self._graph_cfg, seed=seed)
 
-        # Compute node2vec embeddings (cached for this episode)
-        self._embeddings = self._compute_embeddings(seed=seed)
+        # Compute node2vec embeddings (cache across episodes when seed/config repeat)
+        cache_key = (
+            int(seed) if seed is not None else -1,
+            int(self._graph_cfg.get("num_nodes", 0)),
+            int(self._graph_cfg.get("bot_cluster_size", 0)),
+            float(self._graph_cfg.get("intra_cluster_density", 0.0)),
+            float(self._graph_cfg.get("inter_cluster_density", 0.0)),
+            int(self._embedding_dim),
+        )
+        if cache_key in _NODE2VEC_CACHE:
+            self._embeddings = _NODE2VEC_CACHE[cache_key]
+        else:
+            self._embeddings = self._compute_embeddings(seed=seed)
+            _NODE2VEC_CACHE[cache_key] = self._embeddings
+            # Keep cache bounded (avoid unbounded RAM growth in long runs)
+            if len(_NODE2VEC_CACHE) > 2:
+                _NODE2VEC_CACHE.pop(next(iter(_NODE2VEC_CACHE)))
         self._embeddings_stale = False
 
         # Build shuffled presentation order (all nodes)
@@ -210,7 +227,7 @@ class TaskCIB(BaseTask):
 
         current_node = self._node_order[self._current_node_idx]
 
-        if action == ACTION_ESCALATE:
+        if action == ACTION_ESCALATE and ACTION_ESCALATE in self._allowed_actions:
             self._escalation_count += 1
 
         if action == ACTION_REMOVE:

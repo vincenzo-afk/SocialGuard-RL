@@ -90,6 +90,7 @@ class SocialGuardEnv(gym.Env):
         self,
         config_path: str | Path | None = None,
         task_override: str | None = None,
+        seed_offset: int = 0,
     ) -> None:
         """Initialise the environment from a YAML config."""
         super().__init__()
@@ -102,6 +103,10 @@ class SocialGuardEnv(gym.Env):
 
         if task_override is not None:
             self._task_cfg["name"] = task_override
+
+        if seed_offset:
+            base_seed = int(self._env_cfg.get("seed", 42))
+            self._env_cfg["seed"] = base_seed + int(seed_offset)
 
         # ---- spaces (fixed for all tasks) --------------------------------
         self.observation_space: ObservationSpace = ObservationSpace()
@@ -186,7 +191,7 @@ class SocialGuardEnv(gym.Env):
             raise RuntimeError("reset() must be called before step().")
 
         # Validate action is in the global action space
-        if not self.action_space.contains(np.int64(action)):
+        if not self.action_space.contains(int(action)):
             raise ValueError(f"Action {action} is not in action_space {self.action_space}")
 
         # Collect context for reward computation
@@ -223,12 +228,16 @@ class SocialGuardEnv(gym.Env):
 
         # Build info dict (Section 5 contract)
         task_info = self._task.get_info()
+        try:
+            collateral_count = int(self._task.get_collateral_count())
+        except Exception:
+            collateral_count = int(self._count_collateral())
         info: dict[str, Any] = {
             "ground_truth": gt,
             "action_taken": action,
             "action_name": ACTION_NAMES.get(action, "unknown"),
             "reward_breakdown": breakdown.to_dict(),
-            "collateral_count": self._count_collateral(),
+            "collateral_count": collateral_count,
             "episode_step": self._episode_step,
             "task_name": self._task.task_name,
             "cumulative_reward": self._cumulative_reward,
@@ -267,6 +276,30 @@ class SocialGuardEnv(gym.Env):
     def close(self) -> None:
         """Clean up environment resources."""
         logger.debug("SocialGuardEnv.close() called.")
+
+    def apply_overrides(self, overrides: dict[str, Any]) -> None:
+        """Merge config overrides into the env for subsequent resets.
+
+        This is used by training curricula to progressively increase difficulty
+        without changing the observation/action spaces.
+        """
+        if not overrides:
+            return
+        for section, patch in overrides.items():
+            if not isinstance(patch, dict):
+                self._cfg[section] = patch
+                continue
+            base = self._cfg.get(section, {})
+            if not isinstance(base, dict):
+                base = {}
+            merged = dict(base)
+            merged.update(patch)
+            self._cfg[section] = merged
+
+        # Refresh internal references
+        self._env_cfg = self._cfg.get("env", self._env_cfg)
+        self._task_cfg = self._cfg.get("task", self._task_cfg)
+        self._reward_cfg = self._cfg.get("reward", self._reward_cfg)
 
     # ------------------------------------------------------------------
     # Custom public method

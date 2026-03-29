@@ -26,14 +26,22 @@ logger = logging.getLogger(__name__)
 
 def load_model(model_path: str) -> Any:
     """Load SB3 model. Tries PPO first, then DQN based on filename heuristic."""
-    path = Path(model_path)
+    trusted_root = (Path.cwd() / "models").resolve()
+    path = (Path.cwd() / model_path).resolve() if not Path(model_path).is_absolute() else Path(model_path).resolve()
+    if trusted_root not in path.parents:
+        raise ValueError(
+            f"Refusing to load model outside trusted directory: {path}. "
+            f"Place models under: {trusted_root}"
+        )
+    if path.suffix.lower() != ".zip":
+        raise ValueError(f"Model must be a .zip file: {path}")
     if not path.exists():
-        raise FileNotFoundError(f"Model file not found: {model_path}")
+        raise FileNotFoundError(f"Model file not found: {path}")
     
     # Simple heuristic
     if "dqn" in path.name.lower():
-        return DQN.load(model_path)
-    return PPO.load(model_path)
+        return DQN.load(str(path))
+    return PPO.load(str(path))
 
 
 def main() -> None:
@@ -46,12 +54,12 @@ def main() -> None:
     args = parser.parse_args()
     
     logger.info(f"Loading environment from {args.config}...")
-    env = SocialGuardEnv(config_path=args.config)
+    env_baseline = SocialGuardEnv(config_path=args.config)
     
     # 1. Evaluate baseline
     logger.info("Evaluating Rule-Based Baseline...")
     baseline = BaselineAgent()
-    grader = Grader(env, n_episodes=args.episodes)
+    grader = Grader(env_baseline, n_episodes=args.episodes)
     
     baseline_stats = grader.evaluate(baseline, agent_name="Baseline")
     
@@ -61,7 +69,8 @@ def main() -> None:
     logger.info("Evaluating Trained RL Model...")
     
     # We must reset grader per eval iteration
-    grader = Grader(env, n_episodes=args.episodes)
+    env_model = SocialGuardEnv(config_path=args.config)
+    grader = Grader(env_model, n_episodes=args.episodes)
     model_stats = grader.evaluate(model, agent_name=args.model)
     
     # 3. Compare and output
@@ -83,6 +92,8 @@ def main() -> None:
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / f"eval_{Path(args.model).stem}.json"
     grader.save_results(model_stats, str(out_path))
+    env_baseline.close()
+    env_model.close()
 
 if __name__ == "__main__":
     main()
