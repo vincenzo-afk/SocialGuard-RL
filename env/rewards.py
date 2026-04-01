@@ -198,12 +198,14 @@ class RewardEngine:
         if is_bot:
             return 0.0
         # Scale penalty by legitimacy — hurts more to remove a real, reputable user
+        # Enforce minimum penalty of 0.1 (Fix for #45)
+        eff_legitimacy = max(legitimacy_score, 0.1)
         if action == ACTION_REMOVE:
-            return legitimacy_score * 1.0
+            return eff_legitimacy * 1.0
         if action in (ACTION_WARN, ACTION_REDUCE_REACH):
-            return legitimacy_score * 0.3
+            return eff_legitimacy * 0.3
         if action == ACTION_ESCALATE:
-            return legitimacy_score * 0.1
+            return eff_legitimacy * 0.1
         # allow on a real user — correct
         return 0.0
 
@@ -226,7 +228,7 @@ class RewardEngine:
         if is_bot:
             return 0.0
         if action == ACTION_REMOVE:
-            return legitimacy_score
+            return max(legitimacy_score, 0.1)
         return 0.0
 
     def _compute_speed_bonus(

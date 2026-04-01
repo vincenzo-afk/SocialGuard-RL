@@ -21,9 +21,9 @@ class RewardModel(BaseModel):
     escalation_penalty: float
 
 class StepRequest(BaseModel):
-    task: str
+    task: str = "task_spam"
     action: int
 
 class ResetRequest(BaseModel):
-    task: str
+    task: str = "task_spam"
     seed: Optional[int] = None

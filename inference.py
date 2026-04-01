@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 TASK_CONFIGS = {
     "task_spam":    "configs/task1.yaml",
     "task_misinfo": "configs/task2.yaml",
-    "task_cib":     "configs/task3.yaml",
+    "task_cib":     "configs/inference.yaml",
 }
 
 # Per-task episode budget (seconds). Total must fit in 20 min.
@@ -148,18 +148,14 @@ def run_task(
     seed: int = 42,
 ) -> None:
     """Run one full task episode, emitting START / STEP... / END lines."""
-
-    config_path = TASK_CONFIGS[task_name]
-    env = SocialGuardEnv(config_path)
-
     emit_start(task_name, model_name)
 
     step_count = 0
     all_rewards: list[float] = []
     last_error: str | None = None
     success = False
+    env = None
 
-    # Set per-task timeout (SIGALRM only works on Unix; Windows degrades gracefully)
     use_signal = hasattr(signal, "SIGALRM")
     if use_signal:
         signal.signal(signal.SIGALRM, _timeout_handler)
@@ -168,6 +164,9 @@ def run_task(
     task_start = time.monotonic()
 
     try:
+        config_path = TASK_CONFIGS[task_name]
+        env = SocialGuardEnv(config_path)
+
         obs, info = env.reset(seed=seed)
         terminated = truncated = False
 
@@ -214,12 +213,13 @@ def run_task(
     finally:
         if use_signal:
             signal.alarm(0)  # cancel alarm
-        try:
-            env.close()
-        except Exception:
-            pass
-
-    emit_end(success, step_count, all_rewards)
+        if env is not None:
+            try:
+                env.close()
+            except Exception:
+                pass
+        
+        emit_end(success, step_count, all_rewards)
 
 
 # ---------------------------------------------------------------------------
