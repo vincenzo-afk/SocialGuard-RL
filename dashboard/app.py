@@ -4,18 +4,29 @@ dashboard/app.py — Streamlit Dashboard for SocialGuard-RL.
 Run live evaluation episodes step-by-step or automatically, displaying the
 network state, latest actions, cumulative reward, and decision logs.
 
+Features:
+  - Load any trained .zip model or use the rule-based baseline.
+  - Step forward manually or run continuously at up to 10 steps/second.
+  - Live pyvis network graph with node coloring:
+      green (real), red (bot), yellow (under review), gray (removed).
+  - Metrics cards: total reward, bots removed (TP), innocents removed (FP), timestep.
+  - Decision log table: timestep, action, ground truth, reward.
+  - Cumulative reward chart (per-step).
+  - Optional token-protected access via SOCIALGUARD_DASHBOARD_TOKEN env var.
+
 Usage::
     streamlit run dashboard/app.py
 """
 
-import time
-import argparse
-import os
 import hmac
-import streamlit as st
-import pandas as pd
-import streamlit.components.v1 as components
+import os
+import time
 from pathlib import Path
+from typing import Any
+
+import streamlit as st
+import streamlit.components.v1 as components
+import pandas as pd
 
 from env.env import SocialGuardEnv
 from baseline import BaselineAgent
@@ -24,7 +35,15 @@ from dashboard.graph_view import generate_graph_base_html, apply_decision_log
 from dashboard.metrics_view import render_metrics_cards, render_decision_log, render_reward_chart
 from evaluate import load_model
 
-st.set_page_config(layout="wide", page_title="SocialGuard-RL Dashboard")
+st.set_page_config(
+    layout="wide",
+    page_title="SocialGuard-RL Dashboard",
+    page_icon="🛡️",
+)
+
+# ---------------------------------------------------------------------------
+# Security helpers
+# ---------------------------------------------------------------------------
 
 def _resolve_trusted_path(path_str: str, trusted_dir: str, suffixes: tuple[str, ...]) -> Path:
     root = (Path.cwd() / trusted_dir).resolve()
@@ -36,8 +55,26 @@ def _resolve_trusted_path(path_str: str, trusted_dir: str, suffixes: tuple[str, 
         raise ValueError(f"Path must end with one of {suffixes}: {p}")
     return p
 
+
+def _check_token() -> None:
+    """Block access unless a valid token is provided (if SOCIALGUARD_DASHBOARD_TOKEN is set)."""
+    dashboard_token = os.environ.get("SOCIALGUARD_DASHBOARD_TOKEN", "").strip()
+    if not dashboard_token:
+        return
+    provided = st.sidebar.text_input("🔑 Dashboard Token", type="password", key="token_input")
+    if not provided:
+        st.warning("Enter the dashboard token in the sidebar to continue.")
+        st.stop()
+    if not hmac.compare_digest(provided.strip(), dashboard_token):
+        st.sidebar.error("❌ Invalid token.")
+        st.stop()
+
+
+# ---------------------------------------------------------------------------
+# Environment loading
+# ---------------------------------------------------------------------------
+
 def get_env(config_path: str) -> SocialGuardEnv:
-    """Load env. Caches are possible but environment holds internal state directly."""
     cfg_path = _resolve_trusted_path(config_path, "configs", (".yaml", ".yml"))
     if (
         "sg_env" not in st.session_state
@@ -50,211 +87,292 @@ def get_env(config_path: str) -> SocialGuardEnv:
                 pass
         st.session_state.sg_env = SocialGuardEnv(config_path=str(cfg_path))
         st.session_state.sg_env_config_path = str(cfg_path)
+        # Invalidate graph cache when env changes
+        st.session_state.pop("graph_base_html", None)
+        st.session_state.pop("graph_base_sig", None)
     return st.session_state.sg_env
 
-def init_session_state():
-    if "step" not in st.session_state:
-        st.session_state.step = 0
-    if "running" not in st.session_state:
-        st.session_state.running = False
-    if "obs" not in st.session_state:
-        st.session_state.obs = None
-    if "terminated" not in st.session_state:
-        st.session_state.terminated = False
-    if "truncated" not in st.session_state:
-        st.session_state.truncated = False
-    if "ep_reward" not in st.session_state:
-        st.session_state.ep_reward = 0.0
-    if "log" not in st.session_state:
-        st.session_state.log = []
-    if "rewards" not in st.session_state:
-        st.session_state.rewards = []
-    if "decision_log" not in st.session_state:
-        st.session_state.decision_log = {}
-    if "tp" not in st.session_state:
-        st.session_state.tp = 0
-    if "fp" not in st.session_state:
-        st.session_state.fp = 0
 
-def step_agent(env: SocialGuardEnv, agent):
-    """Execute a single step using the loaded agent."""
+# ---------------------------------------------------------------------------
+# Session state
+# ---------------------------------------------------------------------------
+
+def init_session_state() -> None:
+    defaults: dict[str, Any] = {
+        "step": 0,
+        "running": False,
+        "obs": None,
+        "terminated": False,
+        "truncated": False,
+        "ep_reward": 0.0,
+        "cumulative_rewards": [],   # per-step cumulative reward values
+        "episode_rewards": [],      # per-episode totals for chart
+        "log": [],
+        "decision_log": {},
+        "tp": 0,
+        "fp": 0,
+    }
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
+
+
+def reset_episode_state() -> None:
+    st.session_state.step = 0
+    st.session_state.terminated = False
+    st.session_state.truncated = False
+    st.session_state.ep_reward = 0.0
+    st.session_state.cumulative_rewards = []
+    st.session_state.log = []
+    st.session_state.decision_log = {}
+    st.session_state.tp = 0
+    st.session_state.fp = 0
+    st.session_state.running = False
+    # Invalidate graph cache so it's rebuilt for the new episode
+    st.session_state.pop("graph_base_html", None)
+    st.session_state.pop("graph_base_sig", None)
+
+
+# ---------------------------------------------------------------------------
+# Step logic
+# ---------------------------------------------------------------------------
+
+def step_agent(env: SocialGuardEnv, agent: Any) -> None:
+    """Execute a single step using the loaded agent and update session state."""
     if st.session_state.terminated or st.session_state.truncated:
         return
-        
+
     obs = st.session_state.obs
-    
+
     if hasattr(agent, "predict"):
         action_arr, _ = agent.predict(obs, deterministic=True)
         action = int(action_arr.item() if hasattr(action_arr, "item") else action_arr)
     else:
         action = agent.act(obs)
-        
+
     try:
         obs, reward, terminated, truncated, info = env.step(action)
     except Exception as e:
         st.session_state.running = False
         st.error(f"env.step() failed: {e}")
         return
-    
+
     st.session_state.obs = obs
     st.session_state.terminated = terminated
     st.session_state.truncated = truncated
-    st.session_state.ep_reward += reward
+    st.session_state.ep_reward += float(reward)
     st.session_state.step += 1
-    
+    st.session_state.cumulative_rewards.append(st.session_state.ep_reward)
+
     gt = info.get("ground_truth", -1)
     act_str = ACTION_NAMES.get(action, str(action))
-    
+
     if action == ACTION_REMOVE:
         if gt == 1:
             st.session_state.tp += 1
         elif gt == 0:
             st.session_state.fp += 1
-    
-    log_entry = {
+
+    st.session_state.log.append({
         "Timestep": st.session_state.step,
-        "Action Taken": act_str,
+        "Action": act_str,
         "Ground Truth": "Bot" if gt == 1 else "Real" if gt == 0 else "N/A",
-        "Reward": round(reward, 4)
-    }
-    st.session_state.log.append(log_entry)
-    
-    # Store decision by node_id if this is a graph task
-    st_dict = env.state()
-    active_task = st_dict.get("active_task", "")
-    
+        "Reward": round(float(reward), 4),
+        "Cumulative": round(st.session_state.ep_reward, 4),
+    })
+
+    # Track node decision for graph coloring (task_cib)
+    state_dict = env.state()
+    active_task = state_dict.get("active_task", "")
     if "cib" in active_task.lower():
-        # Requires deeper integration; for now we use episode_step
-        node_id = st.session_state.step  # Example placeholder for demo
-        st.session_state.decision_log[node_id] = {
-            "action": action,
-            "ground_truth": gt
-        }
+        node_idx = st.session_state.step
+        st.session_state.decision_log[node_idx] = {"action": action, "ground_truth": gt}
 
 
-def main():
-    init_session_state()
-    
-    st.sidebar.title("Configuration")
-    dashboard_token = os.environ.get("SOCIALGUARD_DASHBOARD_TOKEN", "").strip()
-    if dashboard_token:
-        provided = st.sidebar.text_input("Dashboard Token", type="password")
-        if not hmac.compare_digest(provided.strip(), dashboard_token):
-            st.sidebar.error("Invalid token.")
-            st.stop()
+# ---------------------------------------------------------------------------
+# Graph helpers
+# ---------------------------------------------------------------------------
+
+def _get_live_graph(env: SocialGuardEnv) -> Any:
+    """Try to extract the live NetworkX graph from the env's task."""
+    try:
+        task = env._task
+        if task is not None and hasattr(task, "_graph") and task._graph is not None:
+            return task._graph.graph
+    except Exception:
+        pass
+    return None
+
+
+def _build_graph_html(env: SocialGuardEnv) -> str:
+    """Return cached or freshly-generated pyvis HTML for the current episode graph."""
+    import networkx as nx
+
+    live_graph = _get_live_graph(env)
+
+    if live_graph is not None:
+        sig = (id(live_graph), live_graph.number_of_nodes(), live_graph.number_of_edges())
     else:
-        st.sidebar.warning("No `SOCIALGUARD_DASHBOARD_TOKEN` set (dashboard is unauthenticated).")
+        sig = ("dummy", 30, 0)
 
-    model_file = st.sidebar.text_input("Path to Model (.zip)", value="models/ppo_task1.zip")
-    config_file = st.sidebar.text_input("Path to Config (.yaml)", value="configs/task1.yaml")
-    
-    agent_type = st.sidebar.selectbox("Agent to Run", ["Trained Model", "Rule-based Baseline"])
-    
-    if st.sidebar.button("Reset Environment"):
-        env = get_env(config_file)
-        st.session_state.obs, _ = env.reset()
-        st.session_state.terminated = False
-        st.session_state.truncated = False
-        st.session_state.ep_reward = 0.0
-        st.session_state.step = 0
-        st.session_state.log = []
-        st.session_state.decision_log = {}
-        st.session_state.tp = 0
-        st.session_state.fp = 0
-        st.session_state.running = False
+    if st.session_state.get("graph_base_sig") != sig:
+        if live_graph is not None:
+            G = live_graph
+        else:
+            # Fallback: generate a small illustrative placeholder
+            G = nx.barabasi_albert_graph(30, 2, seed=42)
+            # Mark a few nodes as bots for visual demonstration
+            for n in list(G.nodes())[:5]:
+                G.nodes[n]["is_bot"] = True
+
+        st.session_state.graph_base_html = generate_graph_base_html(G)
+        st.session_state.graph_base_sig = sig
+
+    return apply_decision_log(
+        st.session_state.graph_base_html,
+        st.session_state.decision_log,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    init_session_state()
+
+    # --- Auth ---
+    _check_token()
+
+    # --- Sidebar ---
+    st.sidebar.title("⚙️ Configuration")
+
+    config_file = st.sidebar.selectbox(
+        "Task Config",
+        options=[
+            "configs/task1.yaml",
+            "configs/task2.yaml",
+            "configs/task3.yaml",
+        ],
+        index=0,
+    )
+    agent_type = st.sidebar.selectbox(
+        "Agent",
+        ["Rule-based Baseline", "Trained Model"],
+    )
+
+    model_file = ""
+    if agent_type == "Trained Model":
+        model_file = st.sidebar.text_input("Model path (.zip)", value="models/ppo_task1/final_model.zip")
+
+    auto_speed = st.sidebar.slider("Auto-play speed (steps/sec)", min_value=1, max_value=10, value=5)
+
+    st.sidebar.divider()
+
+    if st.sidebar.button("🔄 Reset Episode", use_container_width=True):
+        try:
+            env = get_env(config_file)
+            st.session_state.obs, _ = env.reset()
+            reset_episode_state()
+        except Exception as e:
+            st.sidebar.error(f"Reset failed: {e}")
         st.rerun()
 
+    # --- Load env ---
     try:
         env = get_env(config_file)
     except Exception as e:
-        st.sidebar.error(f"Invalid config path: {e}")
+        st.error(f"❌ Failed to load environment: {e}")
         return
+
     if st.session_state.obs is None:
-        st.session_state.obs, _ = env.reset()
+        try:
+            st.session_state.obs, _ = env.reset()
+        except Exception as e:
+            st.error(f"❌ env.reset() failed: {e}")
+            return
 
-    st.title("SocialGuard-RL Dashboard")
-
+    # --- Load agent ---
     try:
         if agent_type == "Rule-based Baseline":
             agent = BaselineAgent()
         else:
-            try:
-                _ = _resolve_trusted_path(model_file, "models", (".zip",))
-            except Exception as e:
-                st.sidebar.error(f"Invalid model path: {e}")
+            if not model_file:
+                st.error("Please enter a model path.")
                 return
             agent = load_model(model_file)
     except Exception as e:
-        st.error(f"Failed to load agent: {e}")
+        st.error(f"❌ Failed to load agent: {e}")
         return
 
-    # Controls
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col1:
-        if st.button("Step Forward (1)", use_container_width=True):
+    # --- Header ---
+    st.title("🛡️ SocialGuard-RL Dashboard")
+
+    task_label = config_file.replace("configs/", "").replace(".yaml", "")
+    cols = st.columns([2, 1, 1])
+    cols[0].caption(f"**Task:** `{task_label}` · **Agent:** {agent_type}")
+    if st.session_state.terminated or st.session_state.truncated:
+        success = st.session_state.terminated and not st.session_state.truncated
+        cols[1].success("✅ Episode Complete") if success else cols[1].warning("⏹️ Episode Ended")
+    else:
+        cols[1].info("▶️ Running...")
+
+    # --- Metrics ---
+    render_metrics_cards(
+        st.session_state.ep_reward,
+        st.session_state.tp,
+        st.session_state.fp,
+        st.session_state.step,
+    )
+
+    # --- Controls ---
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("⏭️ Step Forward", use_container_width=True, disabled=(st.session_state.terminated or st.session_state.truncated)):
             step_agent(env, agent)
             st.rerun()
-    with col2:
-        if st.button("Play (Auto)", use_container_width=True):
+    with c2:
+        if st.button("▶️ Play", use_container_width=True, disabled=st.session_state.running):
             st.session_state.running = True
             st.rerun()
-    with col3:
-        if st.button("Stop (Pause)", use_container_width=True):
+    with c3:
+        if st.button("⏸️ Pause", use_container_width=True, disabled=not st.session_state.running):
             st.session_state.running = False
             st.rerun()
 
-    # Metric Cards Placeholder
-    metric_placeholder = st.empty()
-    with metric_placeholder:
-        render_metrics_cards(
-            st.session_state.ep_reward,
-            st.session_state.tp,
-            st.session_state.fp,
-            st.session_state.step,
-        )
+    # --- Main Tabs ---
+    tab_log, tab_graph, tab_rewards = st.tabs(["📋 Decision Log", "🕸️ Network Graph", "📈 Reward Chart"])
 
-    t1, t2 = st.tabs(["Dashboard", "Network Graph"])
+    with tab_log:
+        render_decision_log(list(reversed(st.session_state.log[-100:])))
 
-    with t1:
-        log_placeholder = st.empty()
-        with log_placeholder:
-            render_decision_log(list(reversed(st.session_state.log[-50:])))
-        render_reward_chart(st.session_state.rewards)
-            
-    with t2:
-        graph_placeholder = st.empty()
-        # For tasks that don't export graph, this will render empty
-        state = env.state()
-        active_task = state.get("active_task", "")
-        # Real graph rendering requires sim node access.
-        # Fallback to simple generic graph if none exists:
-        if "graph" in state:
-            st.write("Graph data from Env state exists.")
-        
-        # Example to render graph using a dummy graph if not task_cib
+    with tab_graph:
+        st.caption("Node colors: 🟢 Real user · 🔴 Bot · 🟡 Under review · ⬜ Removed")
         try:
-            import networkx as nx
-            G = nx.fast_gnp_random_graph(20, 0.1)
-            sig = (int(G.number_of_nodes()), int(G.number_of_edges()))
-            if st.session_state.get("graph_base_sig") != sig:
-                st.session_state.graph_base_html = generate_graph_base_html(G)
-                st.session_state.graph_base_sig = sig
-            html = apply_decision_log(st.session_state.graph_base_html, st.session_state.decision_log)
-            # Actually Pyvis is handled here
-            with graph_placeholder:
-                components.html(html, height=620)
-        except Exception:
-            st.warning("Could not render internal graph.")
+            html = _build_graph_html(env)
+            components.html(html, height=640, scrolling=False)
+        except Exception as e:
+            st.warning(f"Could not render graph: {e}")
 
-    # Execution Loop
+    with tab_rewards:
+        if st.session_state.cumulative_rewards:
+            df = pd.DataFrame({
+                "Step": range(1, len(st.session_state.cumulative_rewards) + 1),
+                "Cumulative Reward": st.session_state.cumulative_rewards,
+            }).set_index("Step")
+            st.line_chart(df)
+        else:
+            st.info("Cumulative reward chart will appear after the first step.")
+
+    # --- Auto-play loop ---
     if st.session_state.running:
         if st.session_state.terminated or st.session_state.truncated:
             st.session_state.running = False
-            st.session_state.rewards.append(st.session_state.ep_reward)
-            st.sidebar.success("Episode Finished.")
+            st.session_state.episode_rewards.append(st.session_state.ep_reward)
+            st.sidebar.success(f"Episode finished. Reward: {st.session_state.ep_reward:.2f}")
         else:
             step_agent(env, agent)
-            time.sleep(0.1)  # 10 steps per second cap
+            time.sleep(1.0 / auto_speed)
             st.rerun()
 
 
