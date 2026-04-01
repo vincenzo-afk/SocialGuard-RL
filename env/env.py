@@ -189,6 +189,9 @@ class SocialGuardEnv(gym.Env):
         """
         if self._task is None:
             raise RuntimeError("reset() must be called before step().")
+            
+        if getattr(self, "_is_done", False):
+            raise RuntimeError("Episode is already terminated. Call reset() before step().")
 
         # Validate action is in the global action space
         if not self.action_space.contains(np.array(action, dtype=np.int64)):
@@ -347,8 +350,7 @@ class SocialGuardEnv(gym.Env):
             "task_name": task_name,
             "active_task": task_name,
             "decision_history": list(self._decision_history),
-            **{k: (v.tolist() if isinstance(v, np.ndarray) else v)
-               for k, v in task_info.items()},
+            "task_info": task_info,
         }
 
     # ------------------------------------------------------------------

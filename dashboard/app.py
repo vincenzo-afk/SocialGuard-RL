@@ -195,12 +195,10 @@ def step_agent(env: SocialGuardEnv, agent: Any) -> None:
 
 def _get_live_graph(env: SocialGuardEnv) -> Any:
     """Try to extract the live NetworkX graph from the env's task."""
-    try:
-        task = env._task
-        if task is not None and hasattr(task, "_graph") and task._graph is not None:
+    task = env._task
+    if task is not None and hasattr(task, "_graph") and task._graph is not None:
+        if hasattr(task._graph, "graph"):
             return task._graph.graph
-    except Exception:
-        pass
     return None
 
 

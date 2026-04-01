@@ -386,7 +386,7 @@ class TaskCIB(BaseTask):
         try:
             from node2vec import Node2Vec
         except ImportError as exc:
-            logger.warning(
+            logger.error(
                 "node2vec is not installed; using zero embeddings for TaskCIB. "
                 "Install with: pip install node2vec. (%s)",
                 exc,
@@ -415,7 +415,7 @@ class TaskCIB(BaseTask):
                 epochs=5,
             )
         except TypeError as exc:
-            logger.warning(
+            logger.error(
                 "node2vec.fit() signature mismatch; using zero embeddings. (%s)",
                 exc,
             )
