@@ -146,7 +146,15 @@ class TaskCIB(BaseTask):
             if cache_key in _NODE2VEC_CACHE:
                 self._embeddings = _NODE2VEC_CACHE[cache_key]
             else:
-                self._embeddings = self._compute_embeddings(seed=seed)
+                # Resolve embedding method: env var overrides config
+                method = os.environ.get(
+                    "SOCIALGUARD_EMBEDDING_METHOD",
+                    str(self._graph_cfg.get("embedding_method", "spectral")),
+                ).lower().strip()
+                if method == "spectral":
+                    self._embeddings = self._compute_embeddings_spectral()
+                else:
+                    self._embeddings = self._compute_embeddings(seed=seed)
                 _NODE2VEC_CACHE[cache_key] = self._embeddings
                 # Keep cache bounded (avoid unbounded RAM growth in long runs)
                 if len(_NODE2VEC_CACHE) > 2:
@@ -305,6 +313,58 @@ class TaskCIB(BaseTask):
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+
+    def _compute_embeddings_spectral(self) -> dict[int, np.ndarray]:
+        """Compute spectral embeddings using normalized Laplacian eigenvectors.
+
+        Runs in <5 seconds on 500 nodes vs 2-5 min for node2vec.
+        Selectable via graph.embedding_method=spectral or
+        SOCIALGUARD_EMBEDDING_METHOD=spectral env var.
+
+        Returns:
+            Dict mapping node_id (int) to float32 ndarray of shape
+            (embedding_dim,) with L2-normalised values in [-1, 1].
+        """
+        import networkx as nx
+
+        logger.info(
+            'Computing spectral embeddings (%d nodes, dim=%d)...',
+            self._graph.num_nodes,
+            self._embedding_dim,
+        )
+
+        G = self._graph.graph
+        nodes = sorted(G.nodes())
+        n = len(nodes)
+        k = min(self._embedding_dim, n - 2)
+
+        try:
+            from scipy.sparse.linalg import eigsh
+            L = nx.normalized_laplacian_matrix(G, nodelist=nodes).astype('float64')
+            _, vecs = eigsh(L, k=k + 1, which='SM')
+            vecs = vecs[:, 1 : k + 1].astype('float32')
+        except Exception as exc:
+            logger.warning('Spectral embedding failed (%s); using random projections.', exc)
+            rng = np.random.RandomState(42)
+            vecs = rng.randn(n, k).astype('float32')
+
+        if vecs.shape[1] < self._embedding_dim:
+            pad = np.zeros((n, self._embedding_dim - vecs.shape[1]), dtype='float32')
+            vecs = np.concatenate([vecs, pad], axis=1)
+        else:
+            vecs = vecs[:, : self._embedding_dim]
+
+        embeddings: dict[int, np.ndarray] = {}
+        for i, node in enumerate(nodes):
+            vec = vecs[i].copy()
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec = vec / norm
+            embeddings[int(node)] = np.clip(vec, -1.0, 1.0)
+
+        logger.info('Spectral embeddings computed for %d nodes.', len(embeddings))
+        return embeddings
 
     def _compute_embeddings(
         self, seed: int | None = None

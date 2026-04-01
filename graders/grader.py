@@ -67,8 +67,10 @@ class Grader:
             "collateral": [],
         })
 
+        BASE_SEED = 42
+
         for ep in range(self.n_episodes):
-            obs, info = self.env.reset()
+            obs, info = self.env.reset(seed=BASE_SEED + ep)
             task_name = info.get("task_name", "unknown")
             ep_reward: float = 0.0
             ep_steps: int = 0
@@ -164,6 +166,45 @@ class Grader:
             }
 
         return compiled
+
+    def normalized_score(self, task_name: str, task_metrics: dict[str, float], max_hops: int = 20) -> float:
+        """Compute the normalized score [0.0, 1.0] for a task using README formulas.
+
+        Args:
+            task_name: One of 'task_spam', 'task_misinfo', 'task_cib'.
+            task_metrics: Dict from _compile_results() for a single task.
+            max_hops: Max hops for Task 2 speed calculation (default 20).
+
+        Returns:
+            Float in [0.0, 1.0].
+        """
+        f1 = float(task_metrics.get("f1", 0.0))
+        mean_reward = float(task_metrics.get("mean_reward", 0.0))
+        mean_collateral = float(task_metrics.get("mean_collateral", 0.0))
+        time_to_detection = float(task_metrics.get("time_to_detection", max_hops))
+
+        if task_name == "task_spam":
+            # score = 0.7 × F1 + 0.3 × sigmoid(mean_reward / 50.0)
+            import math
+            sig = 1.0 / (1.0 + math.exp(-mean_reward / 50.0))
+            return float(np.clip(0.7 * f1 + 0.3 * sig, 0.0, 1.0))
+
+        if task_name == "task_misinfo":
+            # speed_score = 1.0 − (mean_detection_hop / max_hops)
+            # score = 0.6 × F1 + 0.4 × max(0, speed_score)
+            speed_score = 1.0 - (time_to_detection / max_hops)
+            return float(np.clip(0.6 * f1 + 0.4 * max(0.0, speed_score), 0.0, 1.0))
+
+        if task_name == "task_cib":
+            # bots_removed_pct approximated from tp / (tp + fn) = recall
+            recall = float(task_metrics.get("recall", 0.0))
+            # collateral_rate: mean_collateral relative to a reference of 10 (threshold)
+            collateral_rate = min(mean_collateral / 10.0, 1.0)
+            collateral_penalty = min(collateral_rate * 2.0, 0.5)
+            return float(np.clip(0.5 * recall + 0.5 * f1 - collateral_penalty, 0.0, 1.0))
+
+        # Default: return raw F1
+        return float(np.clip(f1, 0.0, 1.0))
 
     def save_results(self, results: dict[str, Any], filepath: str) -> None:
         """Save grading results to a JSON file."""

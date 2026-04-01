@@ -232,6 +232,11 @@ class SocialGuardEnv(gym.Env):
             collateral_count = int(self._task.get_collateral_count())
         except Exception:
             collateral_count = int(self._count_collateral())
+
+        # task_success: True only when terminated cleanly (not truncated, no collateral overrun)
+        _collateral_threshold = int(self._task_cfg.get("collateral_damage_threshold", 999))
+        task_success = bool(terminated and not truncated and collateral_count < _collateral_threshold)
+
         info: dict[str, Any] = {
             "ground_truth": gt,
             "action_taken": action,
@@ -241,6 +246,7 @@ class SocialGuardEnv(gym.Env):
             "episode_step": self._episode_step,
             "task_name": self._task.task_name,
             "cumulative_reward": self._cumulative_reward,
+            "task_success": task_success,
             **task_info,
         }
 
