@@ -157,6 +157,7 @@ def main() -> None:
             pass
 
     # 6. Save final model
+    os.makedirs(os.path.join(args.output_dir, args.run_name), exist_ok=True)
     final_path = os.path.join(args.output_dir, args.run_name, "final_model.zip")
     model.save(final_path)
     logger.info("Training complete. Model saved to %s", final_path)
