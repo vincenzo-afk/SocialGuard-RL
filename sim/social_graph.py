@@ -150,6 +150,8 @@ class SocialGraph:
         self._node_attrs.pop(node_id, None)
         self._community_index_by_node.pop(node_id, None)
         self._clustering_cache.pop(node_id, None)
+        self._communities_dirty = True
+        self._clustering_dirty = True
         logger.debug("Removed node %d from graph and all sets.", node_id)
 
     def tick(self) -> None:
