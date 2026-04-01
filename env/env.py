@@ -163,6 +163,7 @@ class SocialGuardEnv(gym.Env):
         self._cumulative_reward = 0.0
         self._decision_history = []
         self._episode_step = 0
+        self._is_done = False
 
         obs = self._task.get_observation()
         info = self._task.get_info()
@@ -228,6 +229,7 @@ class SocialGuardEnv(gym.Env):
             not terminated
             and self._episode_step >= self._task.max_steps
         )
+        self._is_done = terminated or truncated
 
         # Build info dict (Section 5 contract)
         task_info = self._task.get_info()
@@ -337,7 +339,15 @@ class SocialGuardEnv(gym.Env):
         Returns:
             Dict with timestep, cumulative_reward, decision_history, task info.
         """
-        task_info: dict[str, Any] = self._task.get_info() if self._task else {}
+        def _deep_cast_numpy(obj):
+            import numpy as np
+            if isinstance(obj, np.generic): return obj.item()
+            if isinstance(obj, np.ndarray): return [_deep_cast_numpy(i) for i in obj]
+            if isinstance(obj, dict): return {str(k): _deep_cast_numpy(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)): return [_deep_cast_numpy(i) for i in obj]
+            return obj
+            
+        task_info: dict[str, Any] = _deep_cast_numpy(self._task.get_info()) if self._task else {}
         task_name = (
             str(self._task.task_name)
             if self._task is not None and hasattr(self._task, "task_name")

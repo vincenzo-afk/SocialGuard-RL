@@ -30,6 +30,7 @@ app.add_middleware(
 
 _envs: dict[str, SocialGuardEnv] = {}
 _locks: dict[str, threading.Lock] = {}
+_registry_lock = threading.Lock()
 
 TASK_CONFIG_MAP = {
     "task_spam":    "configs/task1.yaml",
@@ -46,9 +47,9 @@ def get_env_and_lock(task_name: str) -> tuple[SocialGuardEnv, threading.Lock]:
             status_code=404,
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
-    
-    if task_name not in _locks:
-        _locks[task_name] = threading.Lock()
+    with _registry_lock:
+        if task_name not in _locks:
+            _locks[task_name] = threading.Lock()
         
     with _locks[task_name]:
         if task_name not in _envs:

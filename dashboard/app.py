@@ -33,7 +33,7 @@ from baseline import BaselineAgent
 from env.spaces import ACTION_NAMES, ACTION_REMOVE
 from dashboard.graph_view import generate_graph_base_html, apply_decision_log
 from dashboard.metrics_view import render_metrics_cards, render_decision_log, render_reward_chart
-from evaluate import load_model
+
 
 st.set_page_config(
     layout="wide",
@@ -263,7 +263,7 @@ def main() -> None:
     if agent_type == "Trained Model":
         model_file = st.sidebar.text_input("Model path (.zip)", value="models/ppo_task1/final_model.zip")
 
-    auto_speed = st.sidebar.slider("Auto-play speed (steps/sec)", min_value=1, max_value=10, value=5)
+    auto_speed = st.sidebar.slider("Auto-play speed (steps/sec)", min_value=2, max_value=10, value=5)
 
     st.sidebar.divider()
 
@@ -298,6 +298,7 @@ def main() -> None:
             if not model_file:
                 st.error("Please enter a model path.")
                 return
+            from evaluate import load_model
             agent = load_model(model_file)
     except Exception as e:
         st.error(f"❌ Failed to load agent: {e}")
