@@ -1,0 +1,35 @@
+# OpenEnv Metadata Registry
+version: "1.0"
+name: "SocialGuard-RL"
+description: "A production-grade, OpenEnv-compliant reinforcement learning environment for social media integrity moderation."
+tags:
+  - openenv
+  - reinforcement-learning
+  - content-moderation
+  - social-media
+  - gymnasium
+
+server:
+  port: 7860
+  host: "0.0.0.0"
+
+endpoints:
+  reset: "/reset"
+  step: "/step"
+  state: "/state"
+  grade: "/grade/{task_name}"
+  healthz: "/healthz"
+
+tasks:
+  - id: "task_spam"
+    name: "Spam Account Detection"
+    difficulty: "easy"
+    description: "Classify a queue of synthetic user accounts as legitimate or bot and take appropriate moderation actions."
+  - id: "task_misinfo"
+    name: "Viral Misinformation Flagging"
+    difficulty: "medium"
+    description: "Observe content spreading through a social graph via BFS diffusion and decide when to intervene."
+  - id: "task_cib"
+    name: "CIB Network Takedown"
+    difficulty: "hard"
+    description: "Dismantle a hidden coordinated inauthentic behaviour (CIB) bot cluster embedded in a 500-node planted-partition social graph."

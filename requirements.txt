@@ -28,3 +28,9 @@ python-dotenv>=1.0
 pytest>=7.0.0
 black
 ruff
+fastapi>=0.100.0
+uvicorn>=0.22.0
+pydantic>=2.0.0
+openai>=1.0.0
+
+scipy>=1.10.0
