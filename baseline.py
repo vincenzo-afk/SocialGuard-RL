@@ -48,6 +48,7 @@ from env.spaces import (
     IDX_DEGREE_CENTRALITY,
     IDX_CLUSTERING_COEFF,
     IDX_PPH_NORMALIZED,
+    OBS_DIM,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -122,6 +123,10 @@ class BaselineAgent:
 
     def _infer_task(self, obs: np.ndarray) -> str:
         """Infer active task from sparse padding patterns."""
+        # All-zero terminal observations are ambiguous across tasks.
+        # Bias to task_cib so we avoid misrouting CIB observations into Task 2 logic.
+        if obs.shape[0] >= OBS_DIM and not np.any(np.abs(obs) > 1e-8):
+            return "task_cib"
         if np.any(np.abs(obs[8:]) > 1e-8):
             return "task_cib"
         if np.any(np.abs(obs[6:8]) > 1e-8):
@@ -207,6 +212,8 @@ def run_evaluation(
         ep_reward: float = 0.0
         ep_steps: int = 0
         terminated = truncated = False
+        ep_seen: set[Any] = set()
+        ep_hit: set[Any] = set()
 
         while not (terminated or truncated):
             action = agent.act(obs)
@@ -214,14 +221,20 @@ def run_evaluation(
             ep_reward += reward
             ep_steps += 1
 
-            gt = info["ground_truth"]
-            act = info["action_taken"]
-            if gt == 1 and act == ACTION_REMOVE:
-                tp_total += 1
+            gt = int(info["ground_truth"])
+            act = int(info["action_taken"])
+            entity_id = info.get("entity_id", ep_steps)
+            if gt == 1:
+                # Count a positive entity once per episode.
+                # For Task 2, both REMOVE and REDUCE_REACH are decisive positives.
+                ep_seen.add(entity_id)
+                if act in (ACTION_REMOVE, ACTION_REDUCE_REACH):
+                    ep_hit.add(entity_id)
             elif gt == 0 and act == ACTION_REMOVE:
                 fp_total += 1
-            elif gt == 1 and act != ACTION_REMOVE:
-                fn_total += 1
+
+        tp_total += len(ep_hit)
+        fn_total += len(ep_seen - ep_hit)
 
         rewards.append(ep_reward)
         lengths.append(ep_steps)

@@ -85,6 +85,8 @@ class RewardEngine:
         self._delta: float = float(reward_cfg["delta"])
         self._epsilon: float = float(reward_cfg["epsilon"])
         self._speed_max_hops: int = int(reward_cfg["speed_max_hops"])
+        if self._speed_max_hops <= 0:
+            raise ValueError("reward.speed_max_hops must be > 0")
 
         logger.debug(
             "RewardEngine initialised — α=%.2f β=%.2f γ=%.2f δ=%.2f ε=%.2f "
@@ -198,14 +200,14 @@ class RewardEngine:
         if is_bot:
             return 0.0
         # Scale penalty by legitimacy — hurts more to remove a real, reputable user
-        # Enforce minimum penalty of 0.1 (Fix for #45)
-        eff_legitimacy = max(legitimacy_score, 0.1)
         if action == ACTION_REMOVE:
+            # Keep a minimum floor for hard removals only.
+            eff_legitimacy = max(legitimacy_score, 0.1)
             return eff_legitimacy * 1.0
         if action in (ACTION_WARN, ACTION_REDUCE_REACH):
-            return eff_legitimacy * 0.3
+            return legitimacy_score * 0.3
         if action == ACTION_ESCALATE:
-            return eff_legitimacy * 0.1
+            return legitimacy_score * 0.1
         # allow on a real user — correct
         return 0.0
 

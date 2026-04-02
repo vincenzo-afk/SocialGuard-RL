@@ -151,9 +151,7 @@ class ContentEngine:
 
         # Fact-check flag: misinfo has a probability of being flagged
         if is_misinfo:
-            self._post.fact_check_flag = float(
-                self._rng.random() < 0.6
-            )
+            self._post.fact_check_flag = float(int(self._rng.random() < 0.6))
 
         logger.debug(
             "ContentEngine.reset(): author=%d, misinfo=%s, spread=%.2f",

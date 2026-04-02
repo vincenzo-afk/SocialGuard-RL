@@ -133,6 +133,8 @@ class TaskMisinfo(BaseTask):
         """Return the current hop count — used for the timing bonus."""
         if self._content_engine is None:
             return 0
+        if self._content_engine.is_spread_done():
+            return int(getattr(self._content_engine, "_max_hops", 0))
         return self._content_engine.get_current_hop()
 
     def get_escalation_count(self) -> int:
@@ -192,13 +194,23 @@ class TaskMisinfo(BaseTask):
         if not self._content_engine.is_spread_done():
             self._content_engine.tick()
 
-        # Refresh legitimacy from live spread state so reward uses current risk.
-        obs = self._content_engine.get_content_observation()
+        # Refresh legitimacy only while spread is active; keep last valid value
+        # after terminal spread states to avoid overwriting with zero-obs artifacts.
+        if not self._content_engine.is_spread_done():
+            obs = self._content_engine.get_content_observation()
+            self._legitimacy_score = self._compute_legitimacy_from_obs(obs)
+
+        self._increment_step()
+
+    def _compute_legitimacy_from_obs(self, obs: np.ndarray) -> float:
+        """Compute legitimacy from a content observation vector."""
         spread_rate = float(obs[0]) if obs.shape[0] > 0 else 0.0
         engagement = float(obs[2]) if obs.shape[0] > 2 else 0.0
         credibility = float(obs[3]) if obs.shape[0] > 3 else 0.5
-        self._legitimacy_score = float(
-            np.clip(0.55 * (1.0 - spread_rate) + 0.25 * credibility + 0.20 * (1.0 - engagement), 0.0, 1.0)
+        return float(
+            np.clip(
+                0.55 * (1.0 - spread_rate) + 0.25 * credibility + 0.20 * (1.0 - engagement),
+                0.0,
+                1.0,
+            )
         )
-
-        self._increment_step()

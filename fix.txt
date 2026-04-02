@@ -1,0 +1,300 @@
+I'll scan the entire codebase systematically for CRITICAL and MAJOR bugs.
+
+BUG #1
+Severity: CRITICAL
+Location: env/env.py → step() → lines 158-165
+Bug: When step() is called after episode ends (_is_done=True), it constructs a synthetic terminal info dict but uses self._task which may be None if reset() was never called, causing AttributeError on self._task.task_name and self._task.get_collateral_count().
+---
+
+BUG #2
+Severity: CRITICAL
+Location: server.py → step_env() → line 127
+Bug: Accesses env._task directly to check if reset was called, but this is a private attribute that may not exist or may be in inconsistent state, causing AttributeError.
+---
+
+BUG #3
+Severity: CRITICAL
+Location: server.py → get_env_and_lock() → lines 52-74
+Bug: Race condition - checks if task_name in _envs outside registry_lock (line 46), then re-checks inside lock (line 56), but between fast-path check and lock acquisition another thread could have added the env, causing unnecessary env creation or inconsistent state.
+---
+
+BUG #4
+Severity: MAJOR
+Location: training/callbacks.py → TensorboardCallback._on_step() → lines 36-46
+Bug: When handling dones/infos normalization, if dones is a numpy array, it converts to list but infos handling assumes length match - if infos is a single dict and dones is array of length > 1, indexing infos[i] will fail with TypeError or IndexError.
+---
+
+BUG #5
+Severity: CRITICAL
+Location: tasks/task_cib.py → _compute_embeddings_spectral() → lines 286-315
+Bug: If spectral embedding computation fails, falls back to structural embeddings using graph edges/degrees as signature for deterministic seeding, but if graph has zero edges (possible with very low inter_cluster_density), edge_signature is empty string causing all zero-edge graphs to get identical fallback embeddings regardless of node count or structure.
+---
+
+BUG #6
+Severity: MAJOR
+Location: tasks/task_cib.py → _load_current_node() → lines 412-426
+Bug: Checks if node_id in self._embeddings and logs warning if missing, but then immediately uses emb variable that was never assigned if the check fails, causing UnboundLocalError.
+---
+
+BUG #7
+Severity: CRITICAL
+Location: tasks/task_cib.py → reset() → lines 111-148
+Bug: When loading embeddings from disk cache, converts nodes array to int list but mat is float32 - if embedding refresh happens later with different precision or node order, cache key remains same but data structure differs, causing shape mismatch crashes.
+---
+
+BUG #8
+Severity: MAJOR
+Location: graders/grader.py → evaluate() → lines 79-81
+Bug: Uses entity_id from step_info as dict key for bots_seen/bots_removed sets, but for task_misinfo entity_id is string "misinfo_content" while for task_cib it's int - mixing types in set operations can cause unexpected behavior or silent deduplication failures.
+---
+
+BUG #9
+Severity: CRITICAL
+Location: graders/grader.py → normalized_score() → line 171
+Bug: For task_cib, computes collateral_rate as mean_collateral / 10.0 where 10 is hardcoded threshold, but actual threshold is configurable per task config and may differ from 10, causing incorrect score normalization.
+---
+
+BUG #10
+Severity: MAJOR
+Location: inference.py → run_task() → lines 101-106
+Bug: Uses signal.SIGALRM for timeout but signal module may not have SIGALRM on Windows - hasattr check determines use_signal but if signal exists but SIGALRM doesn't, setting signal.SIGALRM will raise AttributeError.
+---
+
+BUG #11
+Severity: CRITICAL
+Location: inference.py → run_task() → lines 147-151
+Bug: If timeout occurs (TimeoutError raised), last_error is set to "timeout" string but then emit_end is called with all_rewards which may be incomplete - if no steps completed, all_rewards is empty list but emit_end formats rewards with f"{r:.2f}" causing IndexError on empty list join.
+---
+
+BUG #12
+Severity: MAJOR
+Location: dashboard/app.py → step_agent() → lines 102-106
+Bug: After env.step() call, if exception occurs, sets st.session_state.running = False and displays error, but doesn't set terminated/truncated flags, so episode appears to continue running in UI while actually broken.
+---
+
+BUG #13
+Severity: CRITICAL
+Location: dashboard/app.py → _build_graph_html() → lines 199-204
+Bug: Generates graph signature using id(live_graph) which changes on every Python session restart - cached graph_base_html becomes stale but signature never matches after restart, causing cache misses and performance degradation or incorrect graph rendering.
+---
+
+BUG #14
+Severity: MAJOR
+Location: sim/social_graph.py → remove_node() → lines 139-165
+Bug: Increments _removed_since_communities_refresh and _removed_since_clustering_refresh but if remove_node is called N times where N < recompute_interval, then communities/clustering become stale but _communities_dirty remains False, causing get_graph_features to return outdated community assignments.
+---
+
+BUG #15
+Severity: CRITICAL
+Location: sim/social_graph.py → get_graph_features() → line 190
+Bug: Computes community_idx = comm_i / max(len(self._communities_cache) - 1, 1) but if communities_cache has only 1 community, divides by max(0, 1)=1, giving normalized value of comm_i/1 which can be >= 1.0 if comm_i >= 1, violating [0,1] bounds.
+---
+
+BUG #16
+Severity: MAJOR
+Location: sim/content_gen.py → tick() → lines 98-118
+Bug: In BFS spread loop, iterates over self._current_frontier and builds self._next_frontier, then at line 120 assigns self._current_frontier = self._next_frontier, but if next_frontier is empty (no new nodes infected), current_frontier becomes empty and subsequent ticks do nothing, but is_spread_done() at line 137 checks if not self._current_frontier which returns True, terminating spread prematurely even if max_hops not reached.
+---
+
+BUG #17
+Severity: CRITICAL
+Location: tasks/task_misinfo.py → step() → lines 145-158
+Bug: After calling content_engine.remove_content() or tick(), refreshes legitimacy_score from live spread state by reading obs indices directly, but if is_spread_done() is True, get_content_observation() returns zeros array, causing legitimacy_score to be computed from zero spread_rate and engagement, incorrectly boosting legitimacy of removed misinformation.
+---
+
+BUG #18
+Severity: MAJOR
+Location: env/rewards.py → _compute_fp_cost() → line 132
+Bug: Enforces minimum legitimacy of 0.1 via max(legitimacy_score, 0.1) to fix issue #45, but this applies to all actions including WARN and ESCALATE where comment says penalty scales by legitimacy - now removes with legitimacy 0.0 get 0.1 penalty floor, but warns with legitimacy 0.0 also get 0.1 * 0.3 = 0.03 instead of 0.0, changing reward semantics unexpectedly.
+---
+
+BUG #19
+Severity: CRITICAL
+Location: training/train_ppo.py → main() → lines 78-82
+Bug: For task_cib, forces DummyVecEnv to avoid pickling issues, but curriculum callback at line 90 calls env.env_method("apply_overrides") which on DummyVecEnv with n_envs=1 works, but if user manually sets n_envs > 1 for task_cib, DummyVecEnv is used but apply_overrides will be called on each sub-env independently, causing config drift between parallel envs.
+---
+
+BUG #20
+Severity: MAJOR
+Location: training/train_dqn.py → main() → lines 78-82
+Bug: Identical to train_ppo.py bug - forces DummyVecEnv for task_cib but doesn't prevent n_envs > 1, allowing parallel envs with diverging configs under curriculum.
+---
+
+BUG #21
+Severity: CRITICAL
+Location: baseline.py → _infer_task() → lines 77-82
+Bug: Checks if obs[8:] has any non-zero values to detect task_cib, but task_misinfo uses indices 0-5 with 6-67 zeroed - if obs[6:8] are exactly zero but obs[8:] are zero, returns "task_misinfo", but if obs has all zeros (terminal state), also returns "task_misinfo", causing wrong scoring heuristic.
+---
+
+BUG #22
+Severity: MAJOR
+Location: baseline.py → run_evaluation() → lines 176-185
+Bug: Counts tp/fp/fn by checking if action == ACTION_REMOVE and ground_truth, but doesn't account for REDUCE_REACH which also terminates content in task_misinfo - true positives via REDUCE_REACH are missed, causing incorrect F1 calculation.
+---
+
+BUG #23
+Severity: CRITICAL
+Location: evaluate.py → load_model() → lines 28-38
+Bug: Checks if path is under trusted_root using "if trusted_root not in path.parents" but path.parents doesn't include path itself - if model is directly in models/ (not in subdirectory), path.parent is models/ which equals trusted_root, but trusted_root not in [models/] returns True, incorrectly rejecting valid paths.
+---
+
+BUG #24
+Severity: MAJOR
+Location: server.py → grade_task() → lines 161-174
+Bug: Creates isolated env instance for grading with seed_offset=seed, runs grader.evaluate with base_seed=seed, so first episode gets seed=seed+0+seed = 2*seed instead of seed, causing non-deterministic results compared to direct grader usage.
+---
+
+BUG #25
+Severity: CRITICAL
+Location: tests/test_grader.py → test_grader_normalized_score_bounds() → line 18
+Bug: Tests task_cib normalized_score with collateral_damage=10.0 and real_nodes_count=50 giving collateral_rate=0.2, penalty=0.4, but formula is max(0, 0.5*recall + 0.5*f1 - penalty) - with recall=0 and f1=0, score = max(0, -0.4) = 0, which is in bounds, but test doesn't verify the actual expected score, just that it's in [0,1], missing potential formula bugs.
+---
+
+BUG #26
+Severity: MAJOR
+Location: dashboard/graph_view.py → apply_decision_log() → lines 47-74
+Bug: Generates JavaScript that updates node colors by calling nodes.update(updates), but if network hasn't finished initializing when JS executes (streaming HTML), nodes variable may be undefined, causing JS error that's silently ignored by try/catch, leaving graph in wrong state.
+---
+
+BUG #27
+Severity: CRITICAL
+Location: env/env.py → apply_overrides() → lines 257-277
+Bug: After merging overrides into self._cfg, refreshes self._env_cfg, self._task_cfg, self._reward_cfg references, then rebuilds reward_engine, but doesn't rebuild the task instance - existing self._task still uses old config values, causing curriculum changes to be ignored until next reset().
+---
+
+BUG #28
+Severity: MAJOR
+Location: tasks/task_spam.py → _compute_legitimacy() → lines 181-196
+Bug: Adds noise via self._rng.normal(0.0, self._noise_level * 0.1) but doesn't clip result to [0, 1] before final np.clip at line 196 - if noise is extreme negative, score + noise could be very negative, then clipping to 0.0 effectively removes all signal variation for low-legitimacy accounts.
+---
+
+BUG #29
+Severity: CRITICAL
+Location: tasks/task_cib.py → step() → lines 231-244
+Bug: Checks if current_node in self._graph.graph.nodes() before removing, but decision_log update at line 239-242 happens after remove_node call at line 236 - if node removal triggers cascading removes via graph updates, entity_id may already be invalid when decision_log is updated.
+---
+
+BUG #30
+Severity: MAJOR
+Location: server.py → add CORS middleware → lines 18-24
+Bug: Sets allow_credentials=False but allow_origins=["*"] - this combination works but if later allow_credentials is changed to True, wildcard origins will cause CORS errors in browsers, silently breaking authenticated requests.
+---
+
+BUG #31
+Severity: CRITICAL
+Location: graders/grader.py → _compile_results() → lines 102-107
+Bug: Computes time_to_detection from raw_times list, but if no detections occurred (empty list), falls back to mean(counts["lengths"]) for task_misinfo/spam or 0.0 for task_cib - inconsistent fallback logic causes task_cib time_to_detection to be 0 when it should indicate no detection (high value).
+---
+
+BUG #32
+Severity: MAJOR
+Location: training/callbacks.py → CurriculumCallback._maybe_apply() → lines 72-83
+Bug: Finds latest phase where num_timesteps >= threshold, but if training is paused and resumed from checkpoint, num_timesteps resets or jumps, causing curriculum to re-apply earlier phases or skip phases entirely.
+---
+
+BUG #33
+Severity: CRITICAL
+Location: server.py → get_env_and_lock() → line 40
+Bug: Raises HTTPException with status_code=404 for unknown task, but this is inside a helper function called during env initialization - if called from reset_env or step_env, HTTPException propagates correctly, but if called elsewhere, 404 doesn't match actual error (should be 400 Bad Request for invalid task parameter).
+---
+
+BUG #34
+Severity: MAJOR
+Location: sim/social_graph.py → _ensure_communities_cache() → lines 199-210
+Bug: Computes greedy_modularity_communities which is non-deterministic unless graph iteration order is fixed - even with seeded graph generation, community detection can vary between runs, breaking reproducibility.
+---
+
+BUG #35
+Severity: CRITICAL
+Location: tasks/task_cib.py → reset() → lines 111-148
+Bug: Disk cache stores embeddings with key based on config tuple including seed, but if same seed is used across multiple runs with different graph instances, cache returns stale embeddings from first run, causing node_id mismatches when graph structure differs.
+---
+
+BUG #36
+Severity: MAJOR
+Location: inference.py → emit_end() → line 65
+Bug: Formats rewards as comma-separated string with f"{r:.2f}" but if all_rewards list is empty (episode failed immediately), join produces empty string which violates [END] format specification requiring rewards field.
+---
+
+BUG #37
+Severity: CRITICAL
+Location: env/env.py → step() → lines 192-199
+Bug: Copies task_info dict and then overwrites specific keys like entity_id, ground_truth, but if task_info already contains these keys with different values, creates inconsistency - entity_id from pre_step_info (line 174) can differ from task_info's entity_id post-step.
+---
+
+BUG #38
+Severity: MAJOR
+Location: dashboard/app.py → get_env() → lines 58-68
+Bug: Compares st.session_state.sg_env_config_path (string) with str(cfg_path) to detect config changes, but if config file is modified on disk without path changing, stale env is reused with old config values.
+---
+
+BUG #39
+Severity: CRITICAL
+Location: sim/content_gen.py → reset() → lines 69-96
+Bug: Sets post.fact_check_flag to float(rng.random() < 0.6) which converts boolean to float (0.0 or 1.0), but observation spec expects fact_check_flag in {0, 1} - float precision could cause values like 0.999999 or 1.000001 in edge cases with floating point errors.
+---
+
+BUG #40
+Severity: MAJOR
+Location: tasks/task_misinfo.py → get_current_hop() → lines 91-95
+Bug: Returns content_engine.get_current_hop() or 0, but if content_engine is not None but is_spread_done() is True, returns stale hop count from ended episode instead of capping at max_hops or returning sentinel value.
+---
+
+BUG #41
+Severity: CRITICAL
+Location: training/callbacks.py → TensorboardCallback._on_step() → lines 61-67
+Bug: Logs task_cib metrics from info dict only when episode ends (done=True), but if episode is truncated (not terminated), final bots_removed/real_removed counts are never logged, causing incomplete metrics in TensorBoard.
+---
+
+BUG #42
+Severity: MAJOR
+Location: env/rewards.py → _compute_speed_bonus() → lines 167-179
+Bug: Computes bonus = 1.0 - (hop_clamped / speed_max_hops) but if speed_max_hops is 0 (misconfigured), causes ZeroDivisionError - should validate config at engine init.
+---
+
+BUG #43
+Severity: CRITICAL
+Location: baseline.py → act() → lines 84-113
+Bug: Infers task from observation padding, then calls task-specific scoring, but if task inference is wrong (bug #21), uses mismatched scoring heuristic - e.g., scoring task_cib observation with task_misinfo formula produces nonsense suspicion scores.
+---
+
+BUG #44
+Severity: MAJOR
+Location: graders/grader.py → evaluate() → lines 48-57
+Bug: Resets env with seed=base_seed+ep for reproducibility, but if env's internal RNG state persists across resets (not fully reseeded), episodes aren't actually independent, causing correlated outcomes.
+---
+
+BUG #45
+Severity: CRITICAL
+Location: tests/test_env.py → test_step_before_reset_raises() → line 80
+Bug: Tests that step() before reset() raises RuntimeError, but actual env.py implementation (line 160) checks if self._task is None and raises RuntimeError, but if reset() is called then another reset() is called, _task is not None so step() succeeds even though second reset invalidated state.
+---
+
+BUG #46
+Severity: MAJOR
+Location: dashboard/app.py → main() → lines 311-316
+Bug: Auto-play loop calls step_agent, then time.sleep, then st.rerun - if step_agent takes longer than 1/auto_speed seconds, sleep time becomes negative causing instant rerun loop, flooding server with requests.
+---
+
+BUG #47
+Severity: CRITICAL
+Location: server.py → _deep_cast_numpy() → lines 100-109
+Bug: Recursively converts numpy types but doesn't handle numpy scalar types like np.int32 or np.float64 - isinstance(obj, np.generic) at line 102 should catch these but if obj is wrapped in list/tuple, recursion converts list items but outer container remains, causing JSON serialization to fail on nested numpy types.
+---
+
+BUG #48
+Severity: MAJOR
+Location: tasks/task_cib.py → _load_current_node() → lines 392-410
+Bug: Refreshes embeddings when _embeddings_stale and removed_since_refresh >= refresh_every, but refresh sets _embeddings_stale=False, so if refresh fails with exception (line 407), _embeddings_stale becomes False but embeddings are still stale, blocking future refresh attempts.
+---
+
+BUG #49
+Severity: CRITICAL
+Location: env/env.py → state() → lines 282-298
+Bug: Calls _deep_cast_numpy(self._task.get_info()) but if task.get_info() returns dict with numpy arrays nested deeply (e.g., reward_breakdown contains np.float32), recursion may miss them depending on nesting order, causing JSON serialization failures.
+---
+
+BUG #50
+Severity: MAJOR
+Location: sim/social_graph.py → tick() → lines 168-185
+Bug: Samples two nodes from all_nodes for new edge creation, but doesn't check if a==b before checking has_edge, so if same node is sampled twice, has_edge(a,b) with a==b returns False (self-loops don't exist by default), then attempts to add edge which may raise NetworkX error or create self-loop depending on graph type.

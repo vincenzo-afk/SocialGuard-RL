@@ -236,7 +236,7 @@ class SocialGraph:
         return {
             "degree_centrality": float(np.clip(degree_centrality, 0.0, 1.0)),
             "clustering_coefficient": float(np.clip(clustering, 0.0, 1.0)),
-            "community_assignment": float(community_idx),
+            "community_assignment": float(np.clip(community_idx, 0.0, 1.0)),
             "posts_per_hour_normalized": pph_norm,
         }
 
@@ -245,7 +245,12 @@ class SocialGraph:
             return
 
         communities = nx.community.greedy_modularity_communities(self._graph)
-        frozen = [frozenset(c) for c in communities]
+        # Stabilize ordering for reproducibility across runs/Python versions.
+        sorted_communities = sorted(
+            (sorted(int(n) for n in c) for c in communities),
+            key=lambda nodes: (nodes[0] if nodes else -1, len(nodes)),
+        )
+        frozen = [frozenset(c) for c in sorted_communities]
         index_by_node: dict[int, int] = {}
         for i, comm in enumerate(frozen):
             for nid in comm:

@@ -70,6 +70,7 @@ class Grader:
             "rewards": [], "lengths": [],
             "detection_times": [],
             "collateral": [],
+            "collateral_thresholds": [],
         })
 
         for ep in range(self.n_episodes):
@@ -105,6 +106,7 @@ class Grader:
                 if entity_id is None:
                     # Task 2 presents one content entity over multiple steps.
                     entity_id = "misinfo_content" if task_name == "task_misinfo" else step_info.get("episode_step")
+                entity_id = str(entity_id)
 
                 if gt == 1:
                     bots_seen.add(entity_id)
@@ -125,6 +127,8 @@ class Grader:
 
                 if (terminated or truncated) and "collateral_count" in step_info:
                     metrics[task_name]["collateral"].append(step_info["collateral_count"])
+                if (terminated or truncated) and "collateral_threshold" in step_info:
+                    metrics[task_name]["collateral_thresholds"].append(step_info["collateral_threshold"])
 
             # Episode-level confusion counts (prevents FN double-counting).
             metrics[task_name]["tp"] += len(bots_removed)
@@ -152,11 +156,9 @@ class Grader:
             raw_times = counts["detection_times"]
             if raw_times:
                 time_to_detection = float(np.mean(raw_times))
-            elif task_name in ("task_misinfo", "task_spam"):
+            elif task_name in ("task_misinfo", "task_spam", "task_cib"):
                 # No detection: treat as slow detection, not instant.
                 time_to_detection = float(np.mean(counts["lengths"])) if counts["lengths"] else 20.0
-            else:
-                time_to_detection = 0.0
             
             collateral = counts["collateral"]
             mean_collateral = float(np.mean(collateral)) if collateral else 0.0
@@ -169,6 +171,11 @@ class Grader:
                 "mean_episode_length": round(float(np.mean(counts["lengths"])), 1),
                 "time_to_detection": round(time_to_detection, 1),
                 "mean_collateral": round(mean_collateral, 2),
+                "collateral_threshold": (
+                    float(np.mean(counts["collateral_thresholds"]))
+                    if counts.get("collateral_thresholds")
+                    else 10.0
+                ),
                 "n_episodes": len(counts["rewards"]),
                 "tp": tp,
                 "fp": fp,
@@ -213,8 +220,9 @@ class Grader:
         if task_name == "task_cib":
             # bots_removed_pct approximated from tp / (tp + fn) = recall
             recall = float(task_metrics.get("recall", 0.0))
-            # collateral_rate: mean_collateral relative to a reference of 10 (threshold)
-            collateral_rate = min(mean_collateral / 10.0, 1.0)
+            # collateral_rate relative to configured threshold (default 10).
+            collateral_threshold = max(1.0, float(task_metrics.get("collateral_threshold", 10.0)))
+            collateral_rate = min(mean_collateral / collateral_threshold, 1.0)
             collateral_penalty = min(collateral_rate * 2.0, 0.5)
             return float(np.clip(0.5 * recall + 0.5 * f1 - collateral_penalty, 0.0, 1.0))
 

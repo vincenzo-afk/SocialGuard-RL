@@ -44,9 +44,9 @@ TASK_CONFIG_MAP = {
 def get_env_and_lock(task_name: str) -> tuple[SocialGuardEnv, threading.Lock]:
     """Return (or lazily create) the environment and its lock for the given task."""
     if task_name not in TASK_CONFIG_MAP:
-        # [FAIL] #33: Unknown task should return HTTP 404
+        # Invalid task parameter is a client error.
         raise HTTPException(
-            status_code=404,
+            status_code=400,
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
     # Fast path
@@ -121,7 +121,7 @@ def step_env(req: StepRequest):
     """Execute one moderation action and return the next observation + reward."""
     env, lock = get_env_and_lock(req.task)
     with lock:
-        if env._task is None:
+        if getattr(env, "_task", None) is None:
             raise HTTPException(status_code=400, detail="Call /reset before /step.")
         try:
             obs, reward, terminated, truncated, info = env.step(req.action)
@@ -162,7 +162,7 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
 
     if task_name not in TASK_CONFIG_MAP:
         raise HTTPException(
-            status_code=404,
+            status_code=400,
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
 
@@ -171,7 +171,7 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
 
     with grade_lock:
         # Evaluate on an isolated env instance so grading does not block /reset or /step.
-        env = SocialGuardEnv(TASK_CONFIG_MAP[task_name], seed_offset=seed)
+        env = SocialGuardEnv(TASK_CONFIG_MAP[task_name])
         grader = Grader(env, n_episodes=n_episodes)
         try:
             agent = BaselineAgent()

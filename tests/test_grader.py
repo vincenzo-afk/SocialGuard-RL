@@ -19,9 +19,18 @@ def test_grader_normalized_score_bounds() -> None:
     score_misinfo = grader.normalized_score("task_misinfo", {"f1": 0.5, "mean_episode_length": 5, "max_hops": 20})
     assert 0.0 <= score_misinfo <= 1.0
 
-    # Test task_cib
-    # Formula is 0.5*recall + 0.5*f1 - min(collateral_rate*2, 0.5). If 0, then negative clip!
-    score_cib = grader.normalized_score("task_cib", {"f1": 0.0, "recall": 0.0, "collateral_damage": 10.0, "real_nodes_count": 50})
+    # Test task_cib bounds + explicit expected score check.
+    score_cib = grader.normalized_score(
+        "task_cib",
+        {
+            "f1": 0.0,
+            "recall": 0.0,
+            "mean_collateral": 10.0,
+            "collateral_threshold": 50.0,
+        },
+    )
+    # collateral_rate=0.2 -> penalty=0.4; clipped score=0.0
+    assert score_cib == pytest.approx(0.0)
     assert 0.0 <= score_cib <= 1.0
     
     env.close()

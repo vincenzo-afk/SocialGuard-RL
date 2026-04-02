@@ -77,9 +77,11 @@ def _check_token() -> None:
 
 def get_env(config_path: str) -> SocialGuardEnv:
     cfg_path = _resolve_trusted_path(config_path, "configs", (".yaml", ".yml"))
+    cfg_mtime = cfg_path.stat().st_mtime
     if (
         "sg_env" not in st.session_state
         or st.session_state.get("sg_env_config_path") != str(cfg_path)
+        or st.session_state.get("sg_env_config_mtime") != cfg_mtime
     ):
         if "sg_env" in st.session_state:
             try:
@@ -88,6 +90,7 @@ def get_env(config_path: str) -> SocialGuardEnv:
                 pass
         st.session_state.sg_env = SocialGuardEnv(config_path=str(cfg_path))
         st.session_state.sg_env_config_path = str(cfg_path)
+        st.session_state.sg_env_config_mtime = cfg_mtime
         # Invalidate graph cache when env changes
         st.session_state.pop("graph_base_html", None)
         st.session_state.pop("graph_base_sig", None)
@@ -168,6 +171,8 @@ def step_agent(env: SocialGuardEnv, agent: Any) -> None:
         obs, reward, terminated, truncated, info = env.step(action)
     except Exception as e:
         st.session_state.running = False
+        st.session_state.terminated = True
+        st.session_state.truncated = True
         st.error(f"env.step() failed: {e}")
         return
 
@@ -227,7 +232,20 @@ def _build_graph_html(env: SocialGuardEnv) -> str:
     live_graph = _get_live_graph(env)
 
     if live_graph is not None:
-        sig = (id(live_graph), live_graph.number_of_nodes(), live_graph.number_of_edges())
+        # Stable content-derived signature (not object id) to avoid stale caches.
+        node_sample = tuple(sorted(int(n) for n in list(live_graph.nodes())[:32]))
+        edge_sample = tuple(
+            sorted(
+                f"{int(min(u, v))}-{int(max(u, v))}"
+                for u, v in list(live_graph.edges())[:64]
+            )
+        )
+        sig = (
+            live_graph.number_of_nodes(),
+            live_graph.number_of_edges(),
+            node_sample,
+            edge_sample,
+        )
     else:
         sig = ("dummy", 30, 0)
 
@@ -393,7 +411,7 @@ def main() -> None:
             st.sidebar.success(f"Episode finished. Reward: {st.session_state.ep_reward:.2f}")
         else:
             step_agent(env, agent)
-            time.sleep(1.0 / auto_speed)
+            time.sleep(max(0.0, 1.0 / max(float(auto_speed), 1.0)))
             st.rerun()
 
 
