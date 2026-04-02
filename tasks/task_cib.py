@@ -381,7 +381,7 @@ class TaskCIB(BaseTask):
                 f"{int(node)}:{int(G.degree(node))}" for node in nodes
             )
             attr_signature = "|".join(
-                f"{int(node)}:{int(bool(self._graph.get_node_attrs(int(node)).get('is_bot', False)))}"
+                f"{int(node)}:{float(self._graph.get_node_attrs(int(node)).get('activity_score', 0.5)):.4f}"
                 for node in nodes
             )
             sig = hashlib.sha256(
@@ -389,7 +389,7 @@ class TaskCIB(BaseTask):
             ).digest()
             fallback_seed = int.from_bytes(sig[:4], byteorder="big", signed=False)
             rng = np.random.RandomState(fallback_seed)
-            # Structural fallback: degree/activity/legitimacy + small seeded projection.
+            # Structural fallback: degree/activity/legitimacy/account-age + seeded projection.
             base = np.zeros((n, 4), dtype=np.float32)
             max_degree = max((G.degree(node) for node in nodes), default=1)
             for i, node in enumerate(nodes):
@@ -397,7 +397,7 @@ class TaskCIB(BaseTask):
                 base[i, 0] = float(G.degree(node) / max(max_degree, 1))
                 base[i, 1] = float(np.clip(attrs.get("activity_score", 0.5), 0.0, 1.0))
                 base[i, 2] = float(np.clip(attrs.get("legitimacy_score", 0.5), 0.0, 1.0))
-                base[i, 3] = 1.0 if bool(attrs.get("is_bot", False)) else 0.0
+                base[i, 3] = float(np.clip(attrs.get("account_age_days", 0.0) / 3650.0, 0.0, 1.0))
             proj = rng.randn(4, max(k, 1)).astype(np.float32)
             vecs = (base @ proj).astype(np.float32)
 
@@ -524,7 +524,7 @@ class TaskCIB(BaseTask):
                     self._embedding_refresh_failures,
                 )
 
-        # 64-dim embedding (stale embeddings re-used after removal — blueprint)
+        # Embedding block is always fixed-width (64) so graph features stay at 64..67.
         if node_id in self._embeddings:
             emb = self._embeddings[node_id]
         else:
@@ -534,6 +534,10 @@ class TaskCIB(BaseTask):
                 self._embeddings_stale,
             )
             emb = np.zeros(self._embedding_dim, dtype=np.float32)
+        if emb.shape[0] < TASK3_EMBEDDING_DIM:
+            emb = np.pad(emb, (0, TASK3_EMBEDDING_DIM - emb.shape[0]), mode="constant")
+        elif emb.shape[0] > TASK3_EMBEDDING_DIM:
+            emb = emb[:TASK3_EMBEDDING_DIM]
 
         # 4 graph-level features
         graph_feats = self._graph.get_graph_features(node_id)

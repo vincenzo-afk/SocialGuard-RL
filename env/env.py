@@ -199,12 +199,16 @@ class SocialGuardEnv(gym.Env):
                 if self._task is not None and hasattr(self._task, "task_name")
                 else str(self._task_cfg.get("name", "unknown"))
             )
+            try:
+                collateral_count = int(self._task.get_collateral_count())
+            except AttributeError:
+                collateral_count = int(self._count_collateral())
             info: dict[str, Any] = {
                 "ground_truth": 0,
                 "action_taken": int(action),
                 "action_name": ACTION_NAMES.get(action, "unknown"),
                 "reward_breakdown": {"total": 0.0},
-                "collateral_count": 0,
+                "collateral_count": collateral_count,
                 "episode_step": self._episode_step,
                 "task_name": task_name,
                 "cumulative_reward": self._cumulative_reward,

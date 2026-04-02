@@ -152,7 +152,7 @@ class Grader:
             raw_times = counts["detection_times"]
             if raw_times:
                 time_to_detection = float(np.mean(raw_times))
-            elif task_name == "task_misinfo":
+            elif task_name in ("task_misinfo", "task_spam"):
                 # No detection: treat as slow detection, not instant.
                 time_to_detection = float(np.mean(counts["lengths"])) if counts["lengths"] else 20.0
             else:
