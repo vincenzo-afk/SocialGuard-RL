@@ -66,6 +66,14 @@ class SocialGraph:
         self._community_index_by_node: dict[int, int] = {}
         self._clustering_dirty: bool = True
         self._clustering_cache: dict[int, float] = {}
+        self._community_recompute_interval: int = max(
+            1, int(graph_cfg.get("community_recompute_interval", 5))
+        )
+        self._clustering_recompute_interval: int = max(
+            1, int(graph_cfg.get("clustering_recompute_interval", 3))
+        )
+        self._removed_since_communities_refresh: int = 0
+        self._removed_since_clustering_refresh: int = 0
 
         self._generate()
 
@@ -150,8 +158,22 @@ class SocialGraph:
         self._node_attrs.pop(node_id, None)
         self._community_index_by_node.pop(node_id, None)
         self._clustering_cache.pop(node_id, None)
-        self._communities_dirty = True
-        self._clustering_dirty = True
+        self._removed_since_communities_refresh += 1
+        self._removed_since_clustering_refresh += 1
+
+        # Recompute expensive derived structures in batches to keep step latency low.
+        if (
+            self._removed_since_communities_refresh >= self._community_recompute_interval
+            or not self._communities_cache
+        ):
+            self._communities_dirty = True
+            self._removed_since_communities_refresh = 0
+        if (
+            self._removed_since_clustering_refresh >= self._clustering_recompute_interval
+            or not self._clustering_cache
+        ):
+            self._clustering_dirty = True
+            self._removed_since_clustering_refresh = 0
         logger.debug("Removed node %d from graph and all sets.", node_id)
 
     def tick(self) -> None:

@@ -21,6 +21,7 @@ Usage::
 import hmac
 import os
 import time
+import atexit
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,19 @@ def get_env(config_path: str) -> SocialGuardEnv:
         st.session_state.pop("graph_base_html", None)
         st.session_state.pop("graph_base_sig", None)
     return st.session_state.sg_env
+
+
+def _close_dashboard_env_on_exit() -> None:
+    """Best-effort cleanup when Streamlit process exits/reloads."""
+    try:
+        env = st.session_state.get("sg_env")
+        if env is not None:
+            env.close()
+    except Exception:
+        pass
+
+
+atexit.register(_close_dashboard_env_on_exit)
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +314,10 @@ def main() -> None:
                 return
             from evaluate import load_model
             agent = load_model(model_file)
+    except ValueError as e:
+        st.error(f"❌ Invalid model path: {e}")
+        st.info("Use a `.zip` model under the `models/` directory.")
+        return
     except Exception as e:
         st.error(f"❌ Failed to load agent: {e}")
         return

@@ -50,7 +50,12 @@ class Grader:
         self.env = env
         self.n_episodes = n_episodes
 
-    def evaluate(self, agent: Any, agent_name: str = "agent") -> dict[str, Any]:
+    def evaluate(
+        self,
+        agent: Any,
+        agent_name: str = "agent",
+        base_seed: int = 42,
+    ) -> dict[str, Any]:
         """Run evaluation episodes and compute metrics per task.
 
         Args:
@@ -67,15 +72,15 @@ class Grader:
             "collateral": [],
         })
 
-        BASE_SEED = 42
-
         for ep in range(self.n_episodes):
-            obs, info = self.env.reset(seed=BASE_SEED + ep)
+            obs, info = self.env.reset(seed=int(base_seed) + ep)
             task_name = info.get("task_name", "unknown")
             ep_reward: float = 0.0
             ep_steps: int = 0
             ep_tp_added = False
-            episode_gt: int | None = None
+            bots_seen: set[Any] = set()
+            bots_removed: set[Any] = set()
+            false_removes: int = 0
              
             terminated = truncated = False
             while not (terminated or truncated):
@@ -95,12 +100,16 @@ class Grader:
 
                 gt = step_info["ground_truth"]
                 act = step_info["action_taken"]
-                if episode_gt is None:
-                    episode_gt = int(gt)
-                 
+
+                entity_id = step_info.get("entity_id")
+                if entity_id is None:
+                    # Task 2 presents one content entity over multiple steps.
+                    entity_id = "misinfo_content" if task_name == "task_misinfo" else step_info.get("episode_step")
+
                 if gt == 1:
+                    bots_seen.add(entity_id)
                     if act == ACTION_REMOVE:
-                        metrics[task_name]["tp"] += 1
+                        bots_removed.add(entity_id)
                         if not ep_tp_added:
                             if task_name == "task_misinfo":
                                 metrics[task_name]["detection_times"].append(
@@ -109,23 +118,18 @@ class Grader:
                             else:
                                 metrics[task_name]["detection_times"].append(step_info["episode_step"])
                             ep_tp_added = True
-                    else:
-                        # Task 2 (misinfo) presents the same entity across steps; FN is episode-level.
-                        if task_name != "task_misinfo":
-                            metrics[task_name]["fn"] += 1
+                elif act == ACTION_REMOVE:
+                    false_removes += 1
                 else:
-                    if act == ACTION_REMOVE:
-                        metrics[task_name]["fp"] += 1
-                    else:
-                        # Allow on a real user
-                        metrics[task_name]["tn"] += 1
+                    metrics[task_name]["tn"] += 1
 
                 if (terminated or truncated) and "collateral_count" in step_info:
                     metrics[task_name]["collateral"].append(step_info["collateral_count"])
 
-            # Episode-level FN for Task 2 (misinfo): misinfo that was never removed.
-            if task_name == "task_misinfo" and int(episode_gt or 0) == 1 and not ep_tp_added:
-                metrics[task_name]["fn"] += 1
+            # Episode-level confusion counts (prevents FN double-counting).
+            metrics[task_name]["tp"] += len(bots_removed)
+            metrics[task_name]["fn"] += len(bots_seen - bots_removed)
+            metrics[task_name]["fp"] += false_removes
 
             metrics[task_name]["rewards"].append(ep_reward)
             metrics[task_name]["lengths"].append(ep_steps)
@@ -181,7 +185,12 @@ class Grader:
         f1 = float(task_metrics.get("f1", 0.0))
         mean_reward = float(task_metrics.get("mean_reward", 0.0))
         mean_collateral = float(task_metrics.get("mean_collateral", 0.0))
-        time_to_detection = float(task_metrics.get("time_to_detection", max_hops))
+        time_to_detection = float(
+            task_metrics.get(
+                "time_to_detection",
+                task_metrics.get("mean_episode_length", max_hops),
+            )
+        )
 
         if task_name == "task_spam":
             # score = 0.7 × F1 + 0.3 × sigmoid(mean_reward / 50.0)

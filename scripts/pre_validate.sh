@@ -108,8 +108,13 @@ done
 # 6. inference.py stdout format
 # ---------------------------------------------------------------------------
 echo "[6/6] Validating inference.py stdout format..."
-# Run inference locally (not in container) to avoid Docker overhead
-INFERENCE_OUT=$(timeout 300 python3 inference.py 2>/dev/null | head -20 || echo "ERROR")
+# Run inference locally (not in container) to avoid Docker overhead.
+# Use safe placeholder env defaults so format validation works even without real credentials.
+INF_API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:9/v1}"
+INF_MODEL_NAME="${MODEL_NAME:-baseline}"
+INF_HF_TOKEN="${HF_TOKEN:-hf_dummy_for_format_check}"
+INFERENCE_OUT=$(API_BASE_URL="${INF_API_BASE_URL}" MODEL_NAME="${INF_MODEL_NAME}" HF_TOKEN="${INF_HF_TOKEN}" \
+  timeout 300 python3 inference.py 2>/dev/null | head -20 || echo "ERROR")
 
 if echo "${INFERENCE_OUT}" | grep -q "^\[START\]"; then
   _pass "inference.py emits [START] lines"
@@ -123,7 +128,8 @@ else
   _fail "inference.py did not emit [STEP] lines"
 fi
 
-if timeout 300 python3 inference.py 2>/dev/null | grep -q "^\[END\]"; then
+if API_BASE_URL="${INF_API_BASE_URL}" MODEL_NAME="${INF_MODEL_NAME}" HF_TOKEN="${INF_HF_TOKEN}" \
+  timeout 300 python3 inference.py 2>/dev/null | grep -q "^\[END\]"; then
   _pass "inference.py emits [END] lines"
 else
   _fail "inference.py did not emit [END] lines"
