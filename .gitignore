@@ -11,4 +11,6 @@ build/
 .ruff_cache/
 *.log
 node_modules/
-bugs.txt
+bugs.txt.venv/
+venv/
+*.dmg
