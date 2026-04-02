@@ -201,12 +201,12 @@ class SocialGuardEnv(gym.Env):
         # Collect context for reward computation
         gt: int = self._task.get_ground_truth()
         legitimacy: float = self._task.get_legitimacy_score()
-        current_hop: int = self._task.get_current_hop()
         allowed: list[int] = self._task.allowed_actions
         escalation_count: int = self._task.get_escalation_count()
 
         # Advance task state
         self._task.step(action)
+        current_hop: int = self._task.get_current_hop()
 
         # Compute reward
         breakdown = self._reward_engine.compute(
@@ -313,6 +313,7 @@ class SocialGuardEnv(gym.Env):
         self._env_cfg = self._cfg.get("env", self._env_cfg)
         self._task_cfg = self._cfg.get("task", self._task_cfg)
         self._reward_cfg = self._cfg.get("reward", self._reward_cfg)
+        self._reward_engine = RewardEngine(self._reward_cfg)
 
         # Best-effort: apply relevant overrides to an already-instantiated task.
         if self._task is not None:

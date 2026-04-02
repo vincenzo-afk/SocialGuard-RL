@@ -80,6 +80,17 @@ class TaskCIB(BaseTask):
         self._current_node_idx: int = 0
         self._embeddings: dict[int, np.ndarray] = {}  # node_id → 64-dim vector
         self._embeddings_stale: bool = True
+        self._embedding_method: str = str(graph_cfg.get("embedding_method", "spectral")).lower().strip()
+        self._removed_since_embedding_refresh: int = 0
+        self._embedding_refresh_every: int = max(
+            1,
+            int(
+                os.environ.get(
+                    "SOCIALGUARD_EMBEDDING_REFRESH_EVERY",
+                    graph_cfg.get("embedding_refresh_every", 10),
+                )
+            ),
+        )
 
         self._bots_removed: int = 0
         self._real_removed: int = 0             # collateral damage count
@@ -112,6 +123,7 @@ class TaskCIB(BaseTask):
         self._bots_removed = 0
         self._real_removed = 0
         self._escalation_count = 0
+        self._removed_since_embedding_refresh = 0
 
         # Generate graph
         self._graph = SocialGraph(self._graph_cfg, seed=seed)
@@ -124,6 +136,7 @@ class TaskCIB(BaseTask):
             float(self._graph_cfg.get("intra_cluster_density", 0.0)),
             float(self._graph_cfg.get("inter_cluster_density", 0.0)),
             int(self._embedding_dim),
+            str(self._embedding_method),
         )
 
         cache_dir = os.environ.get("SOCIALGUARD_NODE2VEC_CACHE_DIR", "").strip()
@@ -144,18 +157,24 @@ class TaskCIB(BaseTask):
 
         if not disk_loaded:
             if cache_key in _NODE2VEC_CACHE:
-                self._embeddings = _NODE2VEC_CACHE[cache_key]
+                # Copy vectors to avoid accidental cross-episode mutation.
+                self._embeddings = {
+                    int(k): v.copy() for k, v in _NODE2VEC_CACHE[cache_key].items()
+                }
             else:
                 # Resolve embedding method: env var overrides config
                 method = os.environ.get(
                     "SOCIALGUARD_EMBEDDING_METHOD",
                     str(self._graph_cfg.get("embedding_method", "spectral")),
                 ).lower().strip()
+                self._embedding_method = method
                 if method == "spectral":
                     self._embeddings = self._compute_embeddings_spectral()
                 else:
                     self._embeddings = self._compute_embeddings(seed=seed)
-                _NODE2VEC_CACHE[cache_key] = self._embeddings
+                _NODE2VEC_CACHE[cache_key] = {
+                    int(k): v.copy() for k, v in self._embeddings.items()
+                }
                 # Keep cache bounded (avoid unbounded RAM growth in long runs)
                 if len(_NODE2VEC_CACHE) > 2:
                     _NODE2VEC_CACHE.pop(next(iter(_NODE2VEC_CACHE)))
@@ -242,6 +261,11 @@ class TaskCIB(BaseTask):
         cluster_state = self.get_cluster_state()
         return {
             "task_name": self.TASK_NAME,
+            "entity_id": (
+                int(self._node_order[self._current_node_idx])
+                if self._current_node_idx < len(self._node_order)
+                else -1
+            ),
             "ground_truth": self._current_gt,
             "legitimacy_score": self._current_legitimacy,
             "bots_removed": self._bots_removed,
@@ -277,7 +301,7 @@ class TaskCIB(BaseTask):
                     self._bots_removed += 1
                 else:
                     self._real_removed += 1
-                # Mark embeddings as stale (reuse for speed — blueprint pattern)
+                self._removed_since_embedding_refresh += 1
                 self._embeddings_stale = True
 
         self._increment_step()
@@ -289,6 +313,8 @@ class TaskCIB(BaseTask):
             and self._node_order[self._current_node_idx]
             not in self._graph.graph.nodes()
         ):
+            if self.is_done():
+                break
             self._current_node_idx += 1
 
         if not self.is_done():
@@ -345,8 +371,15 @@ class TaskCIB(BaseTask):
             _, vecs = eigsh(L, k=k + 1, which='SM')
             vecs = vecs[:, 1 : k + 1].astype('float32')
         except Exception as exc:
-            logger.warning('Spectral embedding failed (%s); using random projections.', exc)
-            rng = np.random.RandomState(42)
+            logger.warning('Spectral embedding failed (%s); using graph-conditioned random projections.', exc)
+            edge_signature = "|".join(
+                f"{int(min(u, v))}-{int(max(u, v))}" for u, v in sorted(G.edges())
+            )
+            sig = hashlib.sha256(
+                f"{n}|{k}|{edge_signature}".encode("utf-8")
+            ).digest()
+            fallback_seed = int.from_bytes(sig[:4], byteorder="big", signed=False)
+            rng = np.random.RandomState(fallback_seed)
             vecs = rng.randn(n, k).astype('float32')
 
         if vecs.shape[1] < self._embedding_dim:
@@ -447,6 +480,23 @@ class TaskCIB(BaseTask):
         if node_id not in self._graph.graph.nodes():
             self._current_obs = np.zeros(TASK3_OBS_DIM, dtype=np.float32)
             return
+
+        # Keep embeddings reasonably fresh after structural graph changes.
+        if (
+            self._embeddings_stale
+            and self._removed_since_embedding_refresh >= self._embedding_refresh_every
+        ):
+            try:
+                if self._embedding_method == "spectral":
+                    self._embeddings = self._compute_embeddings_spectral()
+                else:
+                    # node2vec refresh is expensive; prefer spectral in long runs.
+                    self._embeddings = self._compute_embeddings_spectral()
+                self._embeddings_stale = False
+                self._removed_since_embedding_refresh = 0
+            except Exception:
+                # Continue with stale embeddings if refresh fails.
+                pass
 
         # 64-dim embedding (stale embeddings re-used after removal — blueprint)
         if node_id in self._embeddings:

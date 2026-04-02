@@ -88,9 +88,9 @@ def main() -> None:
     checkpoint_freq = int(train_cfg.get("checkpoint_freq", 0))
 
     # 2. Build vectorized environment
-    def make_env(rank: int) -> callable:
+    def make_env(rank: int, config_path: str = merged_config_path) -> callable:
         def _init() -> SocialGuardEnv:
-            return SocialGuardEnv(merged_config_path, seed_offset=rank)
+            return SocialGuardEnv(config_path, seed_offset=rank)
         return _init
 
     if args.n_envs > 1 and task_name == "task_cib":

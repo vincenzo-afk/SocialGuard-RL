@@ -7,7 +7,7 @@ Runs all three tasks sequentially within a 20-minute wall-clock budget.
 
 Required environment variables:
     API_BASE_URL  — LLM API base URL, e.g. https://api-inference.huggingface.co/v1
-    MODEL_NAME    — model identifier, e.g. Qwen/Qwen3-30B-A3B
+    MODEL_NAME    — model identifier, e.g. meta-llama/Llama-4-Maverick-17B-128E-Instruct
     HF_TOKEN      — Hugging Face API token
 
 Usage::
@@ -230,6 +230,16 @@ def main() -> None:
     api_base_url = os.environ.get("API_BASE_URL", "")
     model_name   = os.environ.get("MODEL_NAME", "baseline")
     hf_token     = os.environ.get("HF_TOKEN", "")
+    openai_api_key = os.environ.get("OPENAI_API_KEY", "")
+
+    if not hf_token:
+        if openai_api_key:
+            print(
+                "[WARN] OPENAI_API_KEY is set but this project requires HF_TOKEN.",
+                file=sys.stderr,
+            )
+        print("[ERROR] HF_TOKEN is not set. Exiting.", file=sys.stderr)
+        sys.exit(1)
 
     if not api_base_url or not model_name:
         print("[ERROR] API_BASE_URL and MODEL_NAME must be set.", file=sys.stderr)

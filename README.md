@@ -446,7 +446,7 @@ The RL agent is expected to exceed these scores by ≥ 0.05 F1 after 500k traini
 |---|---|
 | `API_BASE_URL` | The API endpoint for your LLM (e.g. `https://api-inference.huggingface.co/v1`) |
 | `MODEL_NAME` | The model identifier (e.g. `Qwen/Qwen3-30B-A3B`) |
-| `HF_TOKEN` | Your Hugging Face API key |
+| `HF_TOKEN` | Your Hugging Face API key (required; do not use `OPENAI_API_KEY` for this project) |
 
 ### Running
 

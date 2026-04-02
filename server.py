@@ -48,17 +48,13 @@ def get_env_and_lock(task_name: str) -> tuple[SocialGuardEnv, threading.Lock]:
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
     with _registry_lock:
-        if task_name not in _locks:
-            _locks[task_name] = threading.Lock()
-        
-    with _locks[task_name]:
+        lock = _locks.setdefault(task_name, threading.Lock())
         if task_name not in _envs:
             try:
                 _envs[task_name] = SocialGuardEnv(TASK_CONFIG_MAP[task_name])
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"Env init failed: {exc}")
-    
-    return _envs[task_name], _locks[task_name]
+        return _envs[task_name], lock
 
 
 def _deep_cast_numpy(obj: Any) -> Any:
@@ -142,31 +138,39 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
     from graders.grader import Grader
     from baseline import BaselineAgent
 
-    env, lock = get_env_and_lock(task_name)
-    with lock:
-        grader = Grader(env, n_episodes=n_episodes)
-        try:
-            agent = BaselineAgent()
-            results = grader.evaluate(agent, agent_name="baseline")
-            task_metrics = results.get("tasks", {}).get(task_name, results)
+    if task_name not in TASK_CONFIG_MAP:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
+        )
 
-            # Compute the normalized score per README formulae
-            score = grader.normalized_score(task_name, task_metrics)
+    # Evaluate on an isolated env instance so grading does not block /reset or /step.
+    env = SocialGuardEnv(TASK_CONFIG_MAP[task_name], seed_offset=seed)
+    grader = Grader(env, n_episodes=n_episodes)
+    try:
+        agent = BaselineAgent()
+        results = grader.evaluate(agent, agent_name="baseline", base_seed=seed)
+        task_metrics = results.get("tasks", {}).get(task_name, results)
 
-            return {
-                "task": task_name,
-                "score": round(score, 4),
-                "details": {
-                    "precision": _deep_cast_numpy(task_metrics.get("precision", 0.0)),
-                    "recall": _deep_cast_numpy(task_metrics.get("recall", 0.0)),
-                    "f1": _deep_cast_numpy(task_metrics.get("f1", 0.0)),
-                    "mean_reward": _deep_cast_numpy(task_metrics.get("mean_reward", 0.0)),
-                    "mean_episode_length": _deep_cast_numpy(task_metrics.get("mean_episode_length", 0.0)),
-                    "n_episodes": n_episodes,
-                },
-            }
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+        # Compute the normalized score per README formulae
+        score = grader.normalized_score(task_name, task_metrics)
+
+        return {
+            "task": task_name,
+            "score": round(score, 4),
+            "details": {
+                "precision": _deep_cast_numpy(task_metrics.get("precision", 0.0)),
+                "recall": _deep_cast_numpy(task_metrics.get("recall", 0.0)),
+                "f1": _deep_cast_numpy(task_metrics.get("f1", 0.0)),
+                "mean_reward": _deep_cast_numpy(task_metrics.get("mean_reward", 0.0)),
+                "mean_episode_length": _deep_cast_numpy(task_metrics.get("mean_episode_length", 0.0)),
+                "n_episodes": n_episodes,
+            },
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        env.close()
 
 
 # ---------------------------------------------------------------------------

@@ -26,8 +26,13 @@ logger = logging.getLogger(__name__)
 
 def load_model(model_path: str) -> Any:
     """Load SB3 model. Tries PPO first, then DQN based on filename heuristic."""
-    trusted_root = (Path.cwd() / "models").resolve()
-    path = (Path.cwd() / model_path).resolve() if not Path(model_path).is_absolute() else Path(model_path).resolve()
+    repo_root = Path(__file__).resolve().parent
+    trusted_root = (repo_root / "models").resolve()
+    path = (
+        (repo_root / model_path).resolve()
+        if not Path(model_path).is_absolute()
+        else Path(model_path).resolve()
+    )
     if trusted_root not in path.parents:
         raise ValueError(
             f"Refusing to load model outside trusted directory: {path}. "

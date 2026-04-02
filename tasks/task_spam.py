@@ -21,6 +21,7 @@ import numpy as np
 from env.spaces import (
     TASK1_FEATURE_NAMES,
     TASK1_OBS_DIM,
+    OBS_DIM,
     pad_observation,
     IDX_ACCOUNT_AGE,
     IDX_POSTS_PER_HOUR,
@@ -128,6 +129,8 @@ class TaskSpam(BaseTask):
             Float32 array of shape (OBS_DIM,) — Task 1 features in [0:8],
             zeros in [8:68].
         """
+        if self.is_done():
+            return self._get_zero_observation()
         return pad_observation(self._current_obs)
 
     def get_ground_truth(self) -> int:
@@ -164,6 +167,7 @@ class TaskSpam(BaseTask):
             "task_name": self.TASK_NAME,
             "queue_position": self._current_idx,
             "queue_length": len(self._queue),
+            "entity_id": int(self._current_idx),
             "ground_truth": self._current_gt,
             "legitimacy_score": self._legitimacy_score,
         }
@@ -205,6 +209,10 @@ class TaskSpam(BaseTask):
         self._current_obs = raw
         self._current_gt = int(entry["is_bot"])
         self._legitimacy_score = float(entry["legitimacy_score"])
+
+    def _get_zero_observation(self) -> np.ndarray:
+        """Return an all-zero observation with the full env observation shape."""
+        return np.zeros(OBS_DIM, dtype=np.float32)
 
     def _compute_legitimacy(
         self, features: dict[str, float], is_bot: bool
