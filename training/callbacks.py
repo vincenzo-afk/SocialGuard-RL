@@ -47,13 +47,24 @@ class TensorboardCallback(BaseCallback):
         if dones is None:
             return True
 
+        # Normalize scalar/non-vec path while preserving vec-env list structure.
         if isinstance(dones, (bool, np.bool_)):
             dones = [bool(dones)]
-            infos = [infos]
+            if isinstance(infos, (list, tuple)):
+                infos = list(infos[:1]) if len(infos) > 0 else [{}]
+            else:
+                infos = [infos or {}]
+        elif not isinstance(dones, (list, tuple, np.ndarray)):
+            dones = [bool(dones)]
+            infos = [infos or {}]
+        elif not isinstance(infos, (list, tuple)):
+            infos = [infos or {} for _ in range(len(dones))]
 
         for i, done in enumerate(dones):
             if done:
-                info = infos[i] if isinstance(infos, (list, tuple)) else infos
+                info = infos[i] if i < len(infos) else {}
+                if not isinstance(info, dict):
+                    continue
 
                 # 1. Log reward breakdown if present
                 if "reward_breakdown" in info:

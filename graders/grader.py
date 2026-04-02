@@ -150,7 +150,13 @@ class Grader:
             f1 = 2 * precision * recall / (precision + recall + 1e-9)
 
             raw_times = counts["detection_times"]
-            time_to_detection = float(np.mean(raw_times)) if raw_times else 0.0
+            if raw_times:
+                time_to_detection = float(np.mean(raw_times))
+            elif task_name == "task_misinfo":
+                # No detection: treat as slow detection, not instant.
+                time_to_detection = float(np.mean(counts["lengths"])) if counts["lengths"] else 20.0
+            else:
+                time_to_detection = 0.0
             
             collateral = counts["collateral"]
             mean_collateral = float(np.mean(collateral)) if collateral else 0.0

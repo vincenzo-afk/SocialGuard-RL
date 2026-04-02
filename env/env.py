@@ -192,7 +192,26 @@ class SocialGuardEnv(gym.Env):
             raise RuntimeError("reset() must be called before step().")
             
         if getattr(self, "_is_done", False):
-            raise RuntimeError("Episode is already terminated. Call reset() before step().")
+            # Gym-compatible post-terminal step: return terminal observation/info.
+            obs = np.zeros(OBS_DIM, dtype=np.float32)
+            task_name = (
+                str(self._task.task_name)
+                if self._task is not None and hasattr(self._task, "task_name")
+                else str(self._task_cfg.get("name", "unknown"))
+            )
+            info: dict[str, Any] = {
+                "ground_truth": 0,
+                "action_taken": int(action),
+                "action_name": ACTION_NAMES.get(action, "unknown"),
+                "reward_breakdown": {"total": 0.0},
+                "collateral_count": 0,
+                "episode_step": self._episode_step,
+                "task_name": task_name,
+                "cumulative_reward": self._cumulative_reward,
+                "task_success": False,
+                "already_done": True,
+            }
+            return obs, 0.0, True, False, info
 
         # Validate action is in the global action space
         if not self.action_space.contains(np.array(action, dtype=np.int64)):
@@ -201,12 +220,18 @@ class SocialGuardEnv(gym.Env):
         # Collect context for reward computation
         gt: int = self._task.get_ground_truth()
         legitimacy: float = self._task.get_legitimacy_score()
+        current_hop: int = self._task.get_current_hop()
         allowed: list[int] = self._task.allowed_actions
         escalation_count: int = self._task.get_escalation_count()
+        pre_step_info: dict[str, Any]
+        try:
+            pre_step_info = dict(self._task.get_info())
+        except Exception:
+            pre_step_info = {}
+        pre_entity_id = pre_step_info.get("entity_id", None)
 
         # Advance task state
         self._task.step(action)
-        current_hop: int = self._task.get_current_hop()
 
         # Compute reward
         breakdown = self._reward_engine.compute(
@@ -235,14 +260,18 @@ class SocialGuardEnv(gym.Env):
         task_info = self._task.get_info()
         try:
             collateral_count = int(self._task.get_collateral_count())
-        except Exception:
+        except AttributeError:
             collateral_count = int(self._count_collateral())
 
         # task_success: True only when terminated cleanly (not truncated, no collateral overrun)
         _collateral_threshold = int(self._task_cfg.get("collateral_damage_threshold", 999))
         task_success = bool(terminated and not truncated and collateral_count < _collateral_threshold)
 
+        # Keep canonical step-level keys authoritative for the action just taken.
+        # task_info may reflect post-step task state and should not overwrite these.
         info: dict[str, Any] = {
+            **task_info,
+            "entity_id": pre_entity_id,
             "ground_truth": gt,
             "action_taken": action,
             "action_name": ACTION_NAMES.get(action, "unknown"),
@@ -252,7 +281,6 @@ class SocialGuardEnv(gym.Env):
             "task_name": self._task.task_name,
             "cumulative_reward": self._cumulative_reward,
             "task_success": task_success,
-            **task_info,
         }
 
         # Log decision to history
