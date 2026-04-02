@@ -78,6 +78,7 @@ class ContentEngine:
         self._graph: SocialGraph = graph
         self._max_hops: int = max_hops
         self._rng: np.random.RandomState = np.random.RandomState(seed)
+        self._noise_level: float = float(content_cfg.get("noise_level", 0.0))
 
         # Episode state — set in reset()
         self._post: Post | None = None
@@ -129,6 +130,12 @@ class ContentEngine:
             spread_rate = float(self._rng.uniform(0.1, 0.5))
             credibility_score = float(self._rng.uniform(0.5, 1.0))
 
+        if self._noise_level > 0.0:
+            spread_rate = float(np.clip(spread_rate + self._rng.normal(0.0, self._noise_level * 0.05), 0.0, 1.0))
+            credibility_score = float(
+                np.clip(credibility_score + self._rng.normal(0.0, self._noise_level * 0.05), 0.0, 1.0)
+            )
+
         self._post = Post(
             author_id=author_id,
             is_misinfo=is_misinfo,
@@ -170,7 +177,14 @@ class ContentEngine:
         for node in self._current_frontier:
             for neighbour in self._graph.get_neighbors(node):
                 if neighbour not in self._visited:
-                    if self._rng.random() < self._post.spread_rate:
+                    local_spread = float(
+                        np.clip(
+                            self._post.spread_rate + self._rng.normal(0.0, self._noise_level * 0.02),
+                            0.0,
+                            1.0,
+                        )
+                    )
+                    if self._rng.random() < local_spread:
                         self._visited.add(neighbour)
                         self._next_frontier.append(neighbour)
 

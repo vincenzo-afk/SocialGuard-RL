@@ -72,6 +72,7 @@ class TaskCIB(BaseTask):
         self._collateral_threshold: int = int(
             task_cfg.get("collateral_damage_threshold", 10)
         )
+        self._noise_level: float = float(task_cfg.get("noise_level", 0.0))
         self._embedding_dim: int = int(graph_cfg.get("embedding_dim", 64))
 
         # Episode state – populated in reset()
@@ -311,12 +312,12 @@ class TaskCIB(BaseTask):
 
         # Skip nodes that were removed from the graph (via cascading removal)
         while (
+            not self.is_done()
+            and
             self._current_node_idx < len(self._node_order)
             and self._node_order[self._current_node_idx]
             not in self._graph.graph.nodes()
         ):
-            if self.is_done():
-                break
             self._current_node_idx += 1
 
         if not self.is_done():
@@ -389,15 +390,15 @@ class TaskCIB(BaseTask):
             ).digest()
             fallback_seed = int.from_bytes(sig[:4], byteorder="big", signed=False)
             rng = np.random.RandomState(fallback_seed)
-            # Structural fallback: degree/activity/legitimacy/account-age + seeded projection.
+            # Structural fallback: degree/activity/account-age/clustering + seeded projection.
             base = np.zeros((n, 4), dtype=np.float32)
             max_degree = max((G.degree(node) for node in nodes), default=1)
             for i, node in enumerate(nodes):
                 attrs = self._graph.get_node_attrs(int(node))
                 base[i, 0] = float(G.degree(node) / max(max_degree, 1))
                 base[i, 1] = float(np.clip(attrs.get("activity_score", 0.5), 0.0, 1.0))
-                base[i, 2] = float(np.clip(attrs.get("legitimacy_score", 0.5), 0.0, 1.0))
-                base[i, 3] = float(np.clip(attrs.get("account_age_days", 0.0) / 3650.0, 0.0, 1.0))
+                base[i, 2] = float(np.clip(attrs.get("account_age_days", 0.0) / 3650.0, 0.0, 1.0))
+                base[i, 3] = float(np.clip(nx.clustering(G, node), 0.0, 1.0))
             proj = rng.randn(4, max(k, 1)).astype(np.float32)
             vecs = (base @ proj).astype(np.float32)
 
@@ -538,6 +539,13 @@ class TaskCIB(BaseTask):
             emb = np.pad(emb, (0, TASK3_EMBEDDING_DIM - emb.shape[0]), mode="constant")
         elif emb.shape[0] > TASK3_EMBEDDING_DIM:
             emb = emb[:TASK3_EMBEDDING_DIM]
+        if self._noise_level > 0.0:
+            emb = emb + self._rng.normal(
+                loc=0.0,
+                scale=self._noise_level * 0.02,
+                size=emb.shape,
+            ).astype(np.float32)
+            emb = np.clip(emb, -1.0, 1.0)
 
         # 4 graph-level features
         graph_feats = self._graph.get_graph_features(node_id)

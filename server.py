@@ -31,6 +31,7 @@ app.add_middleware(
 
 _envs: dict[str, SocialGuardEnv] = {}
 _locks: dict[str, threading.Lock] = {}
+_grade_locks: dict[str, threading.Lock] = {}
 _registry_lock = threading.Lock()
 
 TASK_CONFIG_MAP = {
@@ -109,6 +110,8 @@ def reset_env(req: ResetRequest):
                 truncated=False,
                 info=_deep_cast_numpy(info),
             )
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
 
@@ -163,46 +166,50 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
 
-    # Evaluate on an isolated env instance so grading does not block /reset or /step.
-    env = SocialGuardEnv(TASK_CONFIG_MAP[task_name], seed_offset=seed)
-    grader = Grader(env, n_episodes=n_episodes)
-    try:
-        agent = BaselineAgent()
-        timeout_s = float(max(10, min(600, 15 * max(1, int(n_episodes)))))
+    with _registry_lock:
+        grade_lock = _grade_locks.setdefault(task_name, threading.Lock())
 
-        def _run_eval() -> dict[str, Any]:
-            return grader.evaluate(agent, agent_name="baseline", base_seed=seed)
+    with grade_lock:
+        # Evaluate on an isolated env instance so grading does not block /reset or /step.
+        env = SocialGuardEnv(TASK_CONFIG_MAP[task_name], seed_offset=seed)
+        grader = Grader(env, n_episodes=n_episodes)
+        try:
+            agent = BaselineAgent()
+            timeout_s = float(max(10, min(600, 15 * max(1, int(n_episodes)))))
 
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            fut = pool.submit(_run_eval)
-            try:
-                results = fut.result(timeout=timeout_s)
-            except FuturesTimeoutError:
-                raise HTTPException(
-                    status_code=504,
-                    detail=f"Grading timed out after {timeout_s:.0f}s for task={task_name}",
-                )
-        task_metrics = results.get("tasks", {}).get(task_name, results)
+            def _run_eval() -> dict[str, Any]:
+                return grader.evaluate(agent, agent_name="baseline", base_seed=seed)
 
-        # Compute the normalized score per README formulae
-        score = grader.normalized_score(task_name, task_metrics)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(_run_eval)
+                try:
+                    results = fut.result(timeout=timeout_s)
+                except FuturesTimeoutError:
+                    raise HTTPException(
+                        status_code=504,
+                        detail=f"Grading timed out after {timeout_s:.0f}s for task={task_name}",
+                    )
+            task_metrics = results.get("tasks", {}).get(task_name, results)
 
-        return {
-            "task": task_name,
-            "score": round(score, 4),
-            "details": {
-                "precision": _deep_cast_numpy(task_metrics.get("precision", 0.0)),
-                "recall": _deep_cast_numpy(task_metrics.get("recall", 0.0)),
-                "f1": _deep_cast_numpy(task_metrics.get("f1", 0.0)),
-                "mean_reward": _deep_cast_numpy(task_metrics.get("mean_reward", 0.0)),
-                "mean_episode_length": _deep_cast_numpy(task_metrics.get("mean_episode_length", 0.0)),
-                "n_episodes": n_episodes,
-            },
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-    finally:
-        env.close()
+            # Compute the normalized score per README formulae
+            score = grader.normalized_score(task_name, task_metrics)
+
+            return {
+                "task": task_name,
+                "score": round(score, 4),
+                "details": {
+                    "precision": _deep_cast_numpy(task_metrics.get("precision", 0.0)),
+                    "recall": _deep_cast_numpy(task_metrics.get("recall", 0.0)),
+                    "f1": _deep_cast_numpy(task_metrics.get("f1", 0.0)),
+                    "mean_reward": _deep_cast_numpy(task_metrics.get("mean_reward", 0.0)),
+                    "mean_episode_length": _deep_cast_numpy(task_metrics.get("mean_episode_length", 0.0)),
+                    "n_episodes": n_episodes,
+                },
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+        finally:
+            env.close()
 
 
 # ---------------------------------------------------------------------------
