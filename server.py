@@ -48,14 +48,28 @@ def get_env_and_lock(task_name: str) -> tuple[SocialGuardEnv, threading.Lock]:
             status_code=404,
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
+    # Fast path
+    if task_name in _envs:
+        return _envs[task_name], _locks[task_name]
+
     with _registry_lock:
-        lock = _locks.setdefault(task_name, threading.Lock())
+        # Re-check under lock
+        if task_name in _envs:
+            return _envs[task_name], _locks[task_name]
+        if task_name not in _locks:
+            _locks[task_name] = threading.Lock()
+
+    # Heavy init outside global lock
+    try:
+        new_env = SocialGuardEnv(TASK_CONFIG_MAP[task_name])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Env init failed: {exc}")
+
+    with _registry_lock:
         if task_name not in _envs:
-            try:
-                _envs[task_name] = SocialGuardEnv(TASK_CONFIG_MAP[task_name])
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=f"Env init failed: {exc}")
-        return _envs[task_name], lock
+            _envs[task_name] = new_env
+
+    return _envs[task_name], _locks[task_name]
 
 
 def _deep_cast_numpy(obj: Any) -> Any:
@@ -116,6 +130,8 @@ def step_env(req: StepRequest):
                 info=_deep_cast_numpy(info),
             )
         except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
