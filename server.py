@@ -3,6 +3,7 @@ import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, Any
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import numpy as np
 
 from env.env import SocialGuardEnv
@@ -19,7 +20,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -114,6 +115,8 @@ def step_env(req: StepRequest):
                 truncated=bool(truncated),
                 info=_deep_cast_numpy(info),
             )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
 
@@ -149,7 +152,20 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
     grader = Grader(env, n_episodes=n_episodes)
     try:
         agent = BaselineAgent()
-        results = grader.evaluate(agent, agent_name="baseline", base_seed=seed)
+        timeout_s = float(max(10, min(600, 15 * max(1, int(n_episodes)))))
+
+        def _run_eval() -> dict[str, Any]:
+            return grader.evaluate(agent, agent_name="baseline", base_seed=seed)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fut = pool.submit(_run_eval)
+            try:
+                results = fut.result(timeout=timeout_s)
+            except FuturesTimeoutError:
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"Grading timed out after {timeout_s:.0f}s for task={task_name}",
+                )
         task_metrics = results.get("tasks", {}).get(task_name, results)
 
         # Compute the normalized score per README formulae

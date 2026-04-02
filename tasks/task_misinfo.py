@@ -188,4 +188,13 @@ class TaskMisinfo(BaseTask):
         if not self._content_engine.is_spread_done():
             self._content_engine.tick()
 
+        # Refresh legitimacy from live spread state so reward uses current risk.
+        obs = self._content_engine.get_content_observation()
+        spread_rate = float(obs[0]) if obs.shape[0] > 0 else 0.0
+        engagement = float(obs[2]) if obs.shape[0] > 2 else 0.0
+        credibility = float(obs[3]) if obs.shape[0] > 3 else 0.5
+        self._legitimacy_score = float(
+            np.clip(0.55 * (1.0 - spread_rate) + 0.25 * credibility + 0.20 * (1.0 - engagement), 0.0, 1.0)
+        )
+
         self._increment_step()

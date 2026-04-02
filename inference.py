@@ -177,6 +177,7 @@ def run_task(
 
             step_count += 1
             error: str | None = None
+            reward: float = 0.0
 
             try:
                 action = agent.act(obs)
@@ -205,7 +206,6 @@ def run_task(
     except TimeoutError:
         last_error = "timeout"
         success = False
-        emit_step(step_count + 1, "allow", 0.0, True, "timeout")
     except Exception as exc:
         last_error = str(exc)
         success = False

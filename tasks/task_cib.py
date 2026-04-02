@@ -91,6 +91,7 @@ class TaskCIB(BaseTask):
                 )
             ),
         )
+        self._embedding_refresh_failures: int = 0
 
         self._bots_removed: int = 0
         self._real_removed: int = 0             # collateral damage count
@@ -124,6 +125,7 @@ class TaskCIB(BaseTask):
         self._real_removed = 0
         self._escalation_count = 0
         self._removed_since_embedding_refresh = 0
+        self._embedding_refresh_failures = 0
 
         # Generate graph
         self._graph = SocialGraph(self._graph_cfg, seed=seed)
@@ -371,16 +373,33 @@ class TaskCIB(BaseTask):
             _, vecs = eigsh(L, k=k + 1, which='SM')
             vecs = vecs[:, 1 : k + 1].astype('float32')
         except Exception as exc:
-            logger.warning('Spectral embedding failed (%s); using graph-conditioned random projections.', exc)
+            logger.warning('Spectral embedding failed (%s); using structural fallback embeddings.', exc)
             edge_signature = "|".join(
                 f"{int(min(u, v))}-{int(max(u, v))}" for u, v in sorted(G.edges())
             )
+            degree_signature = "|".join(
+                f"{int(node)}:{int(G.degree(node))}" for node in nodes
+            )
+            attr_signature = "|".join(
+                f"{int(node)}:{int(bool(self._graph.get_node_attrs(int(node)).get('is_bot', False)))}"
+                for node in nodes
+            )
             sig = hashlib.sha256(
-                f"{n}|{k}|{edge_signature}".encode("utf-8")
+                f"{n}|{k}|{edge_signature}|{degree_signature}|{attr_signature}".encode("utf-8")
             ).digest()
             fallback_seed = int.from_bytes(sig[:4], byteorder="big", signed=False)
             rng = np.random.RandomState(fallback_seed)
-            vecs = rng.randn(n, k).astype('float32')
+            # Structural fallback: degree/activity/legitimacy + small seeded projection.
+            base = np.zeros((n, 4), dtype=np.float32)
+            max_degree = max((G.degree(node) for node in nodes), default=1)
+            for i, node in enumerate(nodes):
+                attrs = self._graph.get_node_attrs(int(node))
+                base[i, 0] = float(G.degree(node) / max(max_degree, 1))
+                base[i, 1] = float(np.clip(attrs.get("activity_score", 0.5), 0.0, 1.0))
+                base[i, 2] = float(np.clip(attrs.get("legitimacy_score", 0.5), 0.0, 1.0))
+                base[i, 3] = 1.0 if bool(attrs.get("is_bot", False)) else 0.0
+            proj = rng.randn(4, max(k, 1)).astype(np.float32)
+            vecs = (base @ proj).astype(np.float32)
 
         if vecs.shape[1] < self._embedding_dim:
             pad = np.zeros((n, self._embedding_dim - vecs.shape[1]), dtype='float32')
@@ -494,14 +513,26 @@ class TaskCIB(BaseTask):
                     self._embeddings = self._compute_embeddings_spectral()
                 self._embeddings_stale = False
                 self._removed_since_embedding_refresh = 0
+                self._embedding_refresh_failures = 0
             except Exception:
-                # Continue with stale embeddings if refresh fails.
-                pass
+                # Avoid retrying every step forever if refresh keeps failing.
+                self._embedding_refresh_failures += 1
+                self._embeddings_stale = False
+                self._removed_since_embedding_refresh = 0
+                logger.warning(
+                    "Embedding refresh failed (%d failure(s)); continuing with stale embeddings.",
+                    self._embedding_refresh_failures,
+                )
 
         # 64-dim embedding (stale embeddings re-used after removal — blueprint)
         if node_id in self._embeddings:
             emb = self._embeddings[node_id]
         else:
+            logger.warning(
+                "Missing embedding for node_id=%s (stale=%s); using zero vector fallback.",
+                node_id,
+                self._embeddings_stale,
+            )
             emb = np.zeros(self._embedding_dim, dtype=np.float32)
 
         # 4 graph-level features

@@ -67,10 +67,10 @@ class SocialGraph:
         self._clustering_dirty: bool = True
         self._clustering_cache: dict[int, float] = {}
         self._community_recompute_interval: int = max(
-            1, int(graph_cfg.get("community_recompute_interval", 5))
+            1, int(graph_cfg.get("community_recompute_interval", 20))
         )
         self._clustering_recompute_interval: int = max(
-            1, int(graph_cfg.get("clustering_recompute_interval", 3))
+            1, int(graph_cfg.get("clustering_recompute_interval", 10))
         )
         self._removed_since_communities_refresh: int = 0
         self._removed_since_clustering_refresh: int = 0
