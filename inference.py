@@ -232,22 +232,20 @@ def main() -> None:
     hf_token     = os.environ.get("HF_TOKEN", "")
     openai_api_key = os.environ.get("OPENAI_API_KEY", "")
 
-    if not hf_token:
-        if openai_api_key:
-            print(
-                "[WARN] OPENAI_API_KEY is set but this project requires HF_TOKEN.",
-                file=sys.stderr,
-            )
-        print("[ERROR] HF_TOKEN is not set. Exiting.", file=sys.stderr)
-        sys.exit(1)
-
-    if not api_base_url or not model_name:
-        print("[ERROR] API_BASE_URL and MODEL_NAME must be set.", file=sys.stderr)
-        sys.exit(1)
-
     # Build LLM client — falls back to baseline agent if no API URL
     try:
         from openai import OpenAI
+        if not hf_token:
+            if openai_api_key:
+                print(
+                    "[WARN] OPENAI_API_KEY is set but this project requires HF_TOKEN.",
+                    file=sys.stderr,
+                )
+            print("[ERROR] HF_TOKEN is not set. Exiting.", file=sys.stderr)
+            sys.exit(1)
+        if not api_base_url or not model_name:
+            print("[ERROR] API_BASE_URL and MODEL_NAME must be set.", file=sys.stderr)
+            sys.exit(1)
         client = OpenAI(
             api_key=hf_token or "no-key",
             base_url=api_base_url,

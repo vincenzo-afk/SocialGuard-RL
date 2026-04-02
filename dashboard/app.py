@@ -199,8 +199,12 @@ def step_agent(env: SocialGuardEnv, agent: Any) -> None:
     state_dict = env.state()
     active_task = state_dict.get("active_task", "")
     if "cib" in active_task.lower():
-        node_idx = st.session_state.step
-        st.session_state.decision_log[node_idx] = {"action": action, "ground_truth": gt}
+        node_idx = info.get("entity_id")
+        if node_idx is not None and int(node_idx) >= 0:
+            st.session_state.decision_log[int(node_idx)] = {
+                "action": action,
+                "ground_truth": gt,
+            }
 
 
 # ---------------------------------------------------------------------------

@@ -90,7 +90,10 @@ class TaskMisinfo(BaseTask):
         self._graph = SocialGraph(small_cfg, seed=seed)
         self._content_engine = ContentEngine(
             graph=self._graph,
-            content_cfg={"max_steps": self._max_steps},
+            content_cfg={
+                "max_steps": self._max_steps,
+                "noise_level": self._noise_level,
+            },
             max_hops=20,
             seed=seed,
         )
@@ -158,6 +161,7 @@ class TaskMisinfo(BaseTask):
         )
         return {
             "task_name": self.TASK_NAME,
+            "entity_id": post_info.get("post_id", 0),
             "ground_truth": self._current_gt,
             "legitimacy_score": self._legitimacy_score,
             **post_info,

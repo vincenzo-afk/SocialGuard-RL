@@ -244,11 +244,7 @@ class SocialGraph:
         if not self._communities_dirty:
             return
 
-        # Fast path for larger graphs to avoid expensive modularity recomputation stalls.
-        if self._graph.number_of_nodes() > 300:
-            communities = [set(c) for c in nx.connected_components(self._graph)]
-        else:
-            communities = nx.community.greedy_modularity_communities(self._graph)
+        communities = nx.community.greedy_modularity_communities(self._graph)
         frozen = [frozenset(c) for c in communities]
         index_by_node: dict[int, int] = {}
         for i, comm in enumerate(frozen):
