@@ -80,8 +80,21 @@ try {{
       updates.push({{ id: nodeId, color: color, size: size }});
     }}
   }}
-  if (typeof nodes !== "undefined" && updates.length) {{
-    nodes.update(updates);
+  const applyUpdates = () => {{
+    if (typeof nodes !== "undefined" && nodes && updates.length) {{
+      nodes.update(updates);
+      return true;
+    }}
+    return false;
+  }};
+  if (!applyUpdates()) {{
+    let retries = 0;
+    const timer = setInterval(() => {{
+      retries += 1;
+      if (applyUpdates() || retries >= 20) {{
+        clearInterval(timer);
+      }}
+    }}, 50);
   }}
 }} catch (e) {{
   // ignore

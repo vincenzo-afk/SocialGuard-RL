@@ -95,6 +95,13 @@ class TestReset:
         obs_b, _ = env.reset(seed=7)
         np.testing.assert_array_equal(obs_a, obs_b)
 
+    def test_double_reset_is_safe(self, env: SocialGuardEnv) -> None:
+        """Calling reset twice should be safe and produce valid observations."""
+        obs1, _ = env.reset(seed=0)
+        obs2, _ = env.reset(seed=1)
+        assert obs2 is not None
+        assert not np.array_equal(obs1, obs2)
+
 
 # ---------------------------------------------------------------------------
 # 2. step() return contract

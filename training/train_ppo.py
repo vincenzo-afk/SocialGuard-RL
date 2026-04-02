@@ -67,6 +67,9 @@ def main() -> None:
     train_cfg = cfg.get("training", {})
     env_cfg = cfg.get("env", {})
     task_name = str(cfg.get("task", {}).get("name", "task_spam"))
+    if task_name == "task_cib" and args.n_envs > 1:
+        logger.warning("task_cib with n_envs>1 is unsupported; forcing n_envs=1 for consistency.")
+        args.n_envs = 1
 
     if task_name == "task_cib":
         os.environ.setdefault(

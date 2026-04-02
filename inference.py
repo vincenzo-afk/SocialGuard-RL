@@ -118,7 +118,7 @@ def emit_step(step: int, action_name: str, reward: float, done: bool, error: str
 
 def emit_end(success: bool, steps: int, rewards: list[float]) -> None:
     success_str = "true" if success else "false"
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else "0.00"
     print(
         f"[END]   success={success_str} steps={steps} rewards={rewards_str}",
         flush=True,
@@ -235,22 +235,29 @@ def main() -> None:
     # Build LLM client — falls back to baseline agent if no API URL
     try:
         from openai import OpenAI
-        if not hf_token:
-            if openai_api_key:
+        if not hf_token or not api_base_url or not model_name:
+            if openai_api_key and not hf_token:
                 print(
                     "[WARN] OPENAI_API_KEY is set but this project requires HF_TOKEN.",
                     file=sys.stderr,
                 )
-            print("[ERROR] HF_TOKEN is not set. Exiting.", file=sys.stderr)
-            sys.exit(1)
-        if not api_base_url or not model_name:
-            print("[ERROR] API_BASE_URL and MODEL_NAME must be set.", file=sys.stderr)
-            sys.exit(1)
-        client = OpenAI(
-            api_key=hf_token or "no-key",
-            base_url=api_base_url,
-        )
-        agent = LLMAgent(client, model_name)
+            print(
+                "[WARN] Missing HF_TOKEN/API_BASE_URL/MODEL_NAME; using baseline heuristics fallback.",
+                file=sys.stderr,
+            )
+            from baseline import BaselineAgent
+            class _FallbackAgent:
+                def __init__(self) -> None:
+                    self._inner = BaselineAgent()
+                def act(self, obs: np.ndarray) -> int:
+                    return self._inner.act(obs)
+            agent = _FallbackAgent()  # type: ignore[assignment]
+        else:
+            client = OpenAI(
+                api_key=hf_token or "no-key",
+                base_url=api_base_url,
+            )
+            agent = LLMAgent(client, model_name)
     except ImportError:
         print("[WARN] openai package not installed; using baseline heuristics.", file=sys.stderr)
         from baseline import BaselineAgent

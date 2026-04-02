@@ -232,7 +232,7 @@ class TaskSpam(BaseTask):
             Float in [0, 1].
         """
         # Weighted combination of signals that indicate legitimacy
-        score = (
+        base_score = (
             0.20 * min(features["account_age_days"] / 3650.0, 1.0)
             + 0.15 * features["profile_completeness"]
             + 0.15 * features["follower_ratio"]
@@ -241,6 +241,5 @@ class TaskSpam(BaseTask):
             + 0.10 * features["device_fingerprint_uniqueness"]
             + 0.10 * features["ip_diversity_score"]
         )
-        # Add noise from behavior model's noise level
-        noise = self._rng.normal(0.0, self._noise_level * 0.1)
-        return float(np.clip(score + noise, 0.0, 1.0))
+        raw = base_score + self._rng.normal(0.0, self._noise_level * 0.1)
+        return float(np.clip(raw, 0.0, 1.0))

@@ -61,10 +61,12 @@ class TensorboardCallback(BaseCallback):
             infos = [infos or {} for _ in range(len(dones))]
 
         for i, done in enumerate(dones):
-            if done:
-                info = infos[i] if i < len(infos) else {}
-                if not isinstance(info, dict):
-                    continue
+            info = infos[i] if i < len(infos) else {}
+            if not isinstance(info, dict):
+                continue
+            truncated = bool(info.get("truncated", False) or info.get("TimeLimit.truncated", False))
+            episode_end = bool(done) or truncated
+            if episode_end:
 
                 # 1. Log reward breakdown if present
                 if "reward_breakdown" in info:
@@ -93,6 +95,7 @@ class CurriculumCallback(BaseCallback):
         super().__init__(verbose)
         self._schedule = sorted(((int(t), o) for t, o in schedule), key=lambda x: x[0])
         self._current_phase: int = -1
+        self._max_timesteps_seen: int = 0
 
     def _on_training_start(self) -> None:
         self._maybe_apply()
@@ -102,10 +105,12 @@ class CurriculumCallback(BaseCallback):
         return True
 
     def _maybe_apply(self) -> None:
+        self._max_timesteps_seen = max(self._max_timesteps_seen, int(self.num_timesteps))
+        effective_timesteps = self._max_timesteps_seen
         # Find latest phase whose threshold <= current timesteps.
         next_phase = self._current_phase
         for i, (t, _) in enumerate(self._schedule):
-            if self.num_timesteps >= t:
+            if effective_timesteps >= t:
                 next_phase = i
         if next_phase == self._current_phase or next_phase < 0:
             return
@@ -114,7 +119,7 @@ class CurriculumCallback(BaseCallback):
         try:
             self.training_env.env_method("apply_overrides", overrides)
             self._current_phase = next_phase
-            logger.info("Curriculum phase -> %d (t=%d)", self._current_phase, self.num_timesteps)
+            logger.info("Curriculum phase -> %d (t=%d)", self._current_phase, effective_timesteps)
         except Exception as exc:
             logger.warning("Failed to apply curriculum overrides: %s", exc)
 

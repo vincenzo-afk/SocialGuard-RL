@@ -194,6 +194,19 @@ class SocialGuardEnv(gym.Env):
         if getattr(self, "_is_done", False):
             # Gym-compatible post-terminal step: return terminal observation/info.
             obs = np.zeros(OBS_DIM, dtype=np.float32)
+            if self._task is None:
+                return obs, 0.0, True, False, {
+                    "ground_truth": 0,
+                    "action_taken": int(action),
+                    "action_name": ACTION_NAMES.get(action, "unknown"),
+                    "reward_breakdown": {"total": 0.0},
+                    "collateral_count": 0,
+                    "episode_step": self._episode_step,
+                    "task_name": str(self._task_cfg.get("name", "unknown")),
+                    "cumulative_reward": self._cumulative_reward,
+                    "task_success": False,
+                    "already_done": True,
+                }
             task_name = (
                 str(self._task.task_name)
                 if self._task is not None and hasattr(self._task, "task_name")
@@ -356,6 +369,11 @@ class SocialGuardEnv(gym.Env):
                 task_patch = overrides.get("task", {})
                 if isinstance(task_patch, dict) and "action_space" in task_patch and hasattr(self._task, "_allowed_actions"):
                     self._task._allowed_actions = list(task_patch["action_space"])
+            except Exception:
+                pass
+            # Rebuild active task instance so new task config takes effect immediately.
+            try:
+                self._task = self._build_task()
             except Exception:
                 pass
 

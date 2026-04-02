@@ -130,6 +130,12 @@ class TaskCIB(BaseTask):
 
         # Generate graph
         self._graph = SocialGraph(self._graph_cfg, seed=seed)
+        edge_signature = "|".join(
+            f"{int(min(u, v))}-{int(max(u, v))}" for u, v in sorted(self._graph.graph.edges())
+        )
+        graph_sig = hashlib.sha256(
+            f"{self._graph.num_nodes}|{self._graph.graph.number_of_edges()}|{edge_signature}".encode("utf-8")
+        ).hexdigest()[:16]
 
         # Compute node2vec embeddings (cache across episodes when seed/config repeat)
         cache_key = (
@@ -140,6 +146,7 @@ class TaskCIB(BaseTask):
             float(self._graph_cfg.get("inter_cluster_density", 0.0)),
             int(self._embedding_dim),
             str(self._embedding_method),
+            graph_sig,
         )
 
         cache_dir = os.environ.get("SOCIALGUARD_NODE2VEC_CACHE_DIR", "").strip()
@@ -153,8 +160,13 @@ class TaskCIB(BaseTask):
                     data = np.load(cache_path)
                     nodes = data["nodes"].astype(int).tolist()
                     mat = data["embeddings"].astype(np.float32)
-                    self._embeddings = {int(n): mat[i] for i, n in enumerate(nodes)}
-                    disk_loaded = True
+                    if (
+                        mat.ndim == 2
+                        and len(nodes) == mat.shape[0]
+                        and mat.shape[1] == self._embedding_dim
+                    ):
+                        self._embeddings = {int(n): mat[i] for i, n in enumerate(nodes)}
+                        disk_loaded = True
             except Exception:
                 disk_loaded = False
 
@@ -298,7 +310,10 @@ class TaskCIB(BaseTask):
         if action == ACTION_REMOVE:
             # Only remove if the node is still in the graph (not already gone)
             if current_node in self._graph.graph.nodes():
-                is_bot = self._graph.get_node_attrs(current_node)["is_bot"]
+                # Snapshot metadata before removal so downstream bookkeeping
+                # never depends on removed-node access.
+                node_meta = dict(self._graph.get_node_attrs(current_node))
+                is_bot = bool(node_meta.get("is_bot", False))
                 self._graph.remove_node(current_node)
                 if is_bot:
                     self._bots_removed += 1
@@ -516,10 +531,9 @@ class TaskCIB(BaseTask):
                 self._removed_since_embedding_refresh = 0
                 self._embedding_refresh_failures = 0
             except Exception:
-                # Avoid retrying every step forever if refresh keeps failing.
+                # Keep stale flag set so refresh can be retried on later steps.
                 self._embedding_refresh_failures += 1
-                self._embeddings_stale = False
-                self._removed_since_embedding_refresh = 0
+                self._embeddings_stale = True
                 logger.warning(
                     "Embedding refresh failed (%d failure(s)); continuing with stale embeddings.",
                     self._embedding_refresh_failures,
