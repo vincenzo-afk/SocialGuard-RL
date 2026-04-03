@@ -241,6 +241,62 @@ def get_state(task: str):
         return _deep_cast_numpy(env.state())
 
 
+@app.get("/grade/all", tags=["grading"])
+def grade_all(n_episodes: int = 10, seed: int = 42):
+    requested_episodes = max(0, int(n_episodes))
+    if not TASK_CONFIG_MAP:
+        return {
+            "combined_score": 0.0,
+            "status": "empty",
+            "message": "No grading tasks are configured.",
+        }
+
+    results: dict[str, Any] = {}
+    total = 0.0
+    initialized_tasks: list[str] = []
+    empty_tasks: list[str] = []
+
+    for task in TASK_CONFIG_MAP:
+        if requested_episodes == 0:
+            graded = _default_grade_result(task, requested_episodes, "No grading episodes requested.")
+            empty_tasks.append(task)
+            results[task] = graded
+            continue
+
+        if _ensure_env_session(task, seed=seed):
+            initialized_tasks.append(task)
+
+        try:
+            graded = grade_task(task, n_episodes=requested_episodes, seed=seed)
+        except HTTPException as exc:
+            if not _is_empty_grading_error(exc):
+                raise
+            graded = _default_grade_result(task, requested_episodes, str(exc.detail))
+            empty_tasks.append(task)
+
+        results[task] = graded
+        total += float(graded["score"])
+
+    completed_tasks = [
+        task
+        for task in TASK_CONFIG_MAP
+        if int(results.get(task, {}).get("details", {}).get("n_episodes", 0)) > 0
+    ]
+    results["combined_score"] = round(total / len(TASK_CONFIG_MAP), 4)
+    results["status"] = "ok" if completed_tasks else "empty"
+    results["message"] = (
+        "Grading completed."
+        if completed_tasks
+        else "No completed grading data available yet; returning default scores."
+    )
+    results["completed_tasks"] = completed_tasks
+    if initialized_tasks:
+        results["initialized_tasks"] = initialized_tasks
+    if empty_tasks:
+        results["empty_tasks"] = empty_tasks
+    return results
+
+
 @app.get("/grade/{task_name}", tags=["grading"])
 def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
     from baseline import BaselineAgent
@@ -307,62 +363,6 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
             raise HTTPException(status_code=500, detail=str(exc))
         finally:
             env.close()
-
-
-@app.get("/grade/all", tags=["grading"])
-def grade_all(n_episodes: int = 10, seed: int = 42):
-    requested_episodes = max(0, int(n_episodes))
-    if not TASK_CONFIG_MAP:
-        return {
-            "combined_score": 0.0,
-            "status": "empty",
-            "message": "No grading tasks are configured.",
-        }
-
-    results: dict[str, Any] = {}
-    total = 0.0
-    initialized_tasks: list[str] = []
-    empty_tasks: list[str] = []
-
-    for task in TASK_CONFIG_MAP:
-        if _ensure_env_session(task, seed=seed):
-            initialized_tasks.append(task)
-
-        if requested_episodes == 0:
-            graded = _default_grade_result(task, requested_episodes, "No grading episodes requested.")
-            empty_tasks.append(task)
-            results[task] = graded
-            continue
-
-        try:
-            graded = grade_task(task, n_episodes=requested_episodes, seed=seed)
-        except HTTPException as exc:
-            if not _is_empty_grading_error(exc):
-                raise
-            graded = _default_grade_result(task, requested_episodes, str(exc.detail))
-            empty_tasks.append(task)
-
-        results[task] = graded
-        total += float(graded["score"])
-
-    completed_tasks = [
-        task
-        for task in TASK_CONFIG_MAP
-        if int(results.get(task, {}).get("details", {}).get("n_episodes", 0)) > 0
-    ]
-    results["combined_score"] = round(total / len(TASK_CONFIG_MAP), 4)
-    results["status"] = "ok" if completed_tasks else "empty"
-    results["message"] = (
-        "Grading completed."
-        if completed_tasks
-        else "No completed grading data available yet; returning default scores."
-    )
-    results["completed_tasks"] = completed_tasks
-    if initialized_tasks:
-        results["initialized_tasks"] = initialized_tasks
-    if empty_tasks:
-        results["empty_tasks"] = empty_tasks
-    return results
 
 
 @app.get("/metrics", tags=["meta"])
