@@ -1,3 +1,4 @@
+
 ---
 title: SocialGuard-RL
 emoji: 🛡️
@@ -12,6 +13,9 @@ tags:
   - social-media
   - gymnasium
 license: mit
+sdk: docker
+app_port: 7860
+pinned: false
 ---
 
 # SocialGuard-RL 🛡️
