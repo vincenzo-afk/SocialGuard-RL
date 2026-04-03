@@ -1,300 +1,466 @@
-I'll scan the entire codebase systematically for CRITICAL and MAJOR bugs.
+Here's a comprehensive breakdown of every accuracy bug and every UI enhancement needed.
 
-BUG #1
-Severity: CRITICAL
-Location: env/env.py → step() → lines 158-165
-Bug: When step() is called after episode ends (_is_done=True), it constructs a synthetic terminal info dict but uses self._task which may be None if reset() was never called, causing AttributeError on self._task.task_name and self._task.get_collateral_count().
 ---
 
-BUG #2
-Severity: CRITICAL
-Location: server.py → step_env() → line 127
-Bug: Accesses env._task directly to check if reset was called, but this is a private attribute that may not exist or may be in inconsistent state, causing AttributeError.
+## Accuracy bugs (root causes of wrong/random scores)
+
+**Bug 1 — `graders/grader.py` `_compile_results`: uninitialized `time_to_detection`**
+
+If `task_name` is not in the hard-coded tuple AND `raw_times` is empty, the variable is never assigned. Crashes rather than scoring wrong, but it's a landmine.
+
+```python
+# BEFORE (line ~113):
+if raw_times:
+    time_to_detection = float(np.mean(raw_times))
+elif task_name in ("task_misinfo", "task_spam", "task_cib"):
+    time_to_detection = float(np.mean(counts["lengths"])) if counts["lengths"] else 20.0
+# no else → UnboundLocalError on unknown task names
+
+# FIX:
+if raw_times:
+    time_to_detection = float(np.mean(raw_times))
+else:
+    time_to_detection = min(
+        float(np.mean(counts["lengths"])) if counts["lengths"] else float(max_hops),
+        float(max_hops)   # cap so speed_score never goes negative
+    )
+```
+
 ---
 
-BUG #3
-Severity: CRITICAL
-Location: server.py → get_env_and_lock() → lines 52-74
-Bug: Race condition - checks if task_name in _envs outside registry_lock (line 46), then re-checks inside lock (line 56), but between fast-path check and lock acquisition another thread could have added the env, causing unnecessary env creation or inconsistent state.
+**Bug 2 — `graders/grader.py` `normalized_score` task_misinfo: speed_score goes negative → score always 0**
+
+When the baseline agent never fires a remove (or fires late), `time_to_detection = mean_episode_length` which is often ~50–100 steps, far above `max_hops=20`. `1 - 50/20 = -1.5`, clamped to 0, making the speed component always 0.
+
+```python
+# BEFORE:
+speed_score = 1.0 - (time_to_detection / max_hops)
+return float(np.clip(0.6 * f1 + 0.4 * max(0.0, speed_score), 0.0, 1.0))
+
+# FIX:
+speed_score = max(0.0, 1.0 - (min(time_to_detection, float(max_hops)) / max_hops))
+return float(np.clip(0.6 * f1 + 0.4 * speed_score, 0.0, 1.0))
+```
+
 ---
 
-BUG #4
-Severity: MAJOR
-Location: training/callbacks.py → TensorboardCallback._on_step() → lines 36-46
-Bug: When handling dones/infos normalization, if dones is a numpy array, it converts to list but infos handling assumes length match - if infos is a single dict and dones is array of length > 1, indexing infos[i] will fail with TypeError or IndexError.
+**Bug 3 — `server.py` `grade_task`: wrong fallback dict passed to `normalized_score`**
+
+```python
+# BEFORE (line ~161):
+task_metrics = results.get("tasks", {}).get(task_name, results)
+# If task_name key missing, falls back to the FULL results dict (no f1, recall, etc.)
+
+# FIX:
+task_metrics = results.get("tasks", {}).get(task_name, {})
+if not task_metrics:
+    raise HTTPException(status_code=500, detail=f"No metrics compiled for task {task_name}")
+```
+
 ---
 
-BUG #5
-Severity: CRITICAL
-Location: tasks/task_cib.py → _compute_embeddings_spectral() → lines 286-315
-Bug: If spectral embedding computation fails, falls back to structural embeddings using graph edges/degrees as signature for deterministic seeding, but if graph has zero edges (possible with very low inter_cluster_density), edge_signature is empty string causing all zero-edge graphs to get identical fallback embeddings regardless of node count or structure.
+**Bug 4 — `sim/content_gen.py` `tick()`: empty frontier never terminates spread**
+
+When `_next_frontier` is empty (no new nodes reachable), `_current_frontier` is NOT updated, so `is_spread_done()` never sees an empty frontier. The engine keeps ticking until `_max_timesteps`, wasting steps and making episode lengths unpredictable.
+
+```python
+# BEFORE:
+if self._next_frontier:
+    self._current_frontier = self._next_frontier
+    self._post.hop_count += 1
+    self._post.total_reach += len(self._next_frontier)
+self._timestep += 1
+
+# FIX:
+self._current_frontier = self._next_frontier   # always update, even if empty
+if self._next_frontier:
+    self._post.hop_count += 1
+    self._post.total_reach += len(self._next_frontier)
+self._timestep += 1
+```
+
 ---
 
-BUG #6
-Severity: MAJOR
-Location: tasks/task_cib.py → _load_current_node() → lines 412-426
-Bug: Checks if node_id in self._embeddings and logs warning if missing, but then immediately uses emb variable that was never assigned if the check fails, causing UnboundLocalError.
+**Bug 5 — `baseline.py` `_infer_task`: all-zeros obs returns `"task_cib"` but is scored as spam**
+
+Terminal observations (all zeros after done) misroute to CIB, but the grader still accumulates wrong metrics.
+
+```python
+# BEFORE:
+if obs.shape[0] >= OBS_DIM and not np.any(np.abs(obs) > 1e-8):
+    return "task_cib"
+
+# FIX — return early with allow instead of a misrouted score:
+if not np.any(np.abs(obs) > 1e-8):
+    return "task_spam"   # safe default; grader filters terminal steps via done flag
+```
+
 ---
 
-BUG #7
-Severity: CRITICAL
-Location: tasks/task_cib.py → reset() → lines 111-148
-Bug: When loading embeddings from disk cache, converts nodes array to int list but mat is float32 - if embedding refresh happens later with different precision or node order, cache key remains same but data structure differs, causing shape mismatch crashes.
+**Bug 6 — `graders/grader.py` `evaluate`: entity_id type mismatch silently breaks TP counting**
+
+For task_misinfo, `entity_id = "misinfo_content"` (string). For task_cib, `entity_id` is an int like `42`. Both go through `str(entity_id)` so they become `"misinfo_content"` and `"42"`. But the grader only appends to `detection_times` on the first TP (`ep_tp_added` guard) — if two steps in one episode both see `gt==1` and action==REMOVE, the second is silently dropped, understating TP count.
+
+```python
+# FIX — reset ep_tp_added per-entity, not per-episode, for task_cib:
+# In the evaluate loop, after the while loop ends, use len(bots_removed) directly
+# (already done correctly at episode end) — the bug is ep_tp_added blocking
+# detection_times from being appended more than once per episode for task_cib.
+
+# Replace the ep_tp_added guard with:
+if act == ACTION_REMOVE and entity_id not in bots_removed:
+    bots_removed.add(entity_id)
+    if task_name == "task_misinfo":
+        metrics[task_name]["detection_times"].append(
+            int(step_info.get("hop_count", step_info["episode_step"]))
+        )
+    else:
+        metrics[task_name]["detection_times"].append(step_info["episode_step"])
+```
+
 ---
 
-BUG #8
-Severity: MAJOR
-Location: graders/grader.py → evaluate() → lines 79-81
-Bug: Uses entity_id from step_info as dict key for bots_seen/bots_removed sets, but for task_misinfo entity_id is string "misinfo_content" while for task_cib it's int - mixing types in set operations can cause unexpected behavior or silent deduplication failures.
+**Bug 7 — `sim/social_graph.py` `get_graph_features`: community_assignment can exceed 1.0**
+
+When only 1 community exists, `max(1 - 1, 1) = 1`, so node at community index 1 gets `1/1 = 1.0`. The clip saves it but any node at index >= 1 maps to 1.0, collapsing all variation.
+
+```python
+# FIX:
+n_comms = len(self._communities_cache)
+if n_comms <= 1:
+    community_idx = 0.0
+else:
+    community_idx = comm_i / (n_comms - 1)
+```
+
 ---
 
-BUG #9
-Severity: CRITICAL
-Location: graders/grader.py → normalized_score() → line 171
-Bug: For task_cib, computes collateral_rate as mean_collateral / 10.0 where 10 is hardcoded threshold, but actual threshold is configurable per task config and may differ from 10, causing incorrect score normalization.
+**Bug 8 — `tasks/task_misinfo.py` `get_current_hop()`: returns `_max_hops` after terminal action**
+
+After `remove_content()`, `is_spread_done()` is True, so `get_current_hop()` returns `_max_hops` (20). This inflates hop counts in the grader's `detection_times`, making early removals look slow.
+
+```python
+# BEFORE:
+if self._content_engine.is_spread_done():
+    return int(getattr(self._content_engine, "_max_hops", 0))
+return self._content_engine.get_current_hop()
+
+# FIX — store hop at time of action:
+# In TaskMisinfo.step(), before calling content_engine methods:
+self._final_hop = self._content_engine.get_current_hop()
+
+# In get_current_hop():
+if self._acted:
+    return self._final_hop
+if self._content_engine is None or self._content_engine.is_spread_done():
+    return self._content_engine.get_current_hop() if self._content_engine else 0
+return self._content_engine.get_current_hop()
+```
+
 ---
 
-BUG #10
-Severity: MAJOR
-Location: inference.py → run_task() → lines 101-106
-Bug: Uses signal.SIGALRM for timeout but signal module may not have SIGALRM on Windows - hasattr check determines use_signal but if signal exists but SIGALRM doesn't, setting signal.SIGALRM will raise AttributeError.
+**Bug 9 — `training/callbacks.py` `TensorboardCallback`: truncated episodes never log metrics**
+
+The check `bool(done)` misses truncated episodes. Metrics for truncated task_cib runs are silently dropped.
+
+```python
+# FIX:
+episode_end = bool(done) or bool(info.get("truncated", False)) or bool(info.get("TimeLimit.truncated", False))
+```
+
 ---
 
-BUG #11
-Severity: CRITICAL
-Location: inference.py → run_task() → lines 147-151
-Bug: If timeout occurs (TimeoutError raised), last_error is set to "timeout" string but then emit_end is called with all_rewards which may be incomplete - if no steps completed, all_rewards is empty list but emit_end formats rewards with f"{r:.2f}" causing IndexError on empty list join.
+**Bug 10 — `env/rewards.py` `_compute_speed_bonus`: ACTION_REDUCE_REACH on a bot gives speed bonus but `_compute_correctness` only gives 0.5**
+
+These are logically inconsistent — speed bonus fires on reduce_reach for bots (implying decisive action) but correctness only gives partial credit. For task_misinfo, reduce_reach IS the decisive action, so it should get full correctness credit.
+
+```python
+# FIX in _compute_correctness:
+if is_bot:
+    if action == ACTION_REMOVE:
+        return 1.0
+    if action == ACTION_REDUCE_REACH:
+        return 0.8   # decisive for misinfo, slightly less than remove
+    if action in (ACTION_WARN,):
+        return 0.5
+    if action == ACTION_ESCALATE:
+        return 0.3
+    return 0.0
+```
+
 ---
 
-BUG #12
-Severity: MAJOR
-Location: dashboard/app.py → step_agent() → lines 102-106
-Bug: After env.step() call, if exception occurs, sets st.session_state.running = False and displays error, but doesn't set terminated/truncated flags, so episode appears to continue running in UI while actually broken.
+**Bug 11 — `server.py` `grade_task`: `collateral_threshold` not passed from task config to grader metrics**
+
+`normalized_score` for task_cib divides by `collateral_threshold` defaulting to 10, but the actual config value (from `configs/task3.yaml`) is also 10 — however inference.yaml sets it to 10 too but the env used in grading uses `task3.yaml` with `collateral_damage_threshold: 10`. The deeper issue is that `task_metrics` returned by `_compile_results` computes `collateral_threshold` as the mean of episode-level thresholds only when `step_info` includes it. If the key is missing, it defaults to 10.0 — which may or may not match the actual configured value.
+
+```python
+# FIX in server.py grade endpoint — pass actual task config value:
+actual_threshold = float(env._task_cfg.get("collateral_damage_threshold", 10))
+if "task_cib" in task_name:
+    task_metrics["collateral_threshold"] = actual_threshold
+score = grader.normalized_score(task_name, task_metrics)
+```
+
 ---
 
-BUG #13
-Severity: CRITICAL
-Location: dashboard/app.py → _build_graph_html() → lines 199-204
-Bug: Generates graph signature using id(live_graph) which changes on every Python session restart - cached graph_base_html becomes stale but signature never matches after restart, causing cache misses and performance degradation or incorrect graph rendering.
+**Bug 12 — `inference.py` `emit_end`: empty rewards list produces `"0.00"` instead of empty string violation**
+
+When a task times out before any step completes, `all_rewards = []`, `",".join(...)` gives `""`, but the format spec requires at least one reward value.
+
+```python
+# FIX:
+rewards_str = ",".join(f"{r:.2f}" for r in all_rewards) if all_rewards else "0.00"
+# Already done — but the real fix is the timeout handling which can leave
+# emit_end uncalled. Wrap the entire run_task body in try/finally:
+finally:
+    if env is not None:
+        try: env.close()
+        except: pass
+    emit_end(success, step_count, all_rewards or [0.0])
+```
+
 ---
 
-BUG #14
-Severity: MAJOR
-Location: sim/social_graph.py → remove_node() → lines 139-165
-Bug: Increments _removed_since_communities_refresh and _removed_since_clustering_refresh but if remove_node is called N times where N < recompute_interval, then communities/clustering become stale but _communities_dirty remains False, causing get_graph_features to return outdated community assignments.
+## UI enhancements for the HF Space
+
+The HF Space exposes the FastAPI server on port 7860. Right now the root `/` returns a 404. Here are all improvements:
+
+**Enhancement 1 — Root `/` HTML dashboard page**
+
+Add a live status page at `/` showing task scores, recent API calls, and links to `/docs`.
+
+```python
+# In server.py, add:
+from fastapi.responses import HTMLResponse
+
+@app.get("/", response_class=HTMLResponse, tags=["meta"])
+def root():
+    return """<!DOCTYPE html>
+<html><head><title>SocialGuard-RL</title>
+<meta http-equiv="refresh" content="30">
+<style>
+  body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;
+       background:#fafafa;color:#1a1a1a}
+  h1{font-size:22px;font-weight:500;margin-bottom:4px}
+  .tag{background:#e8f0fe;color:#1a56db;padding:2px 8px;border-radius:4px;font-size:12px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:12px 0}
+  .endpoint{font-family:monospace;font-size:13px;background:#f3f4f6;padding:2px 6px;border-radius:4px}
+  a{color:#2563eb;text-decoration:none}
+  .score{font-size:28px;font-weight:500;color:#059669}
+</style></head><body>
+<h1>🛡️ SocialGuard-RL <span class="tag">OpenEnv</span></h1>
+<p style="color:#6b7280;font-size:14px">Social media integrity moderation RL environment</p>
+<div class="card">
+  <strong>Quick links</strong><br>
+  <a href="/docs">API Docs (Swagger)</a> ·
+  <a href="/grade/task_spam">Grade Spam</a> ·
+  <a href="/grade/task_misinfo">Grade Misinfo</a> ·
+  <a href="/grade/task_cib">Grade CIB</a> ·
+  <a href="/healthz">Health</a>
+</div>
+<div class="card">
+  <strong>Endpoints</strong>
+  <ul style="font-size:14px;line-height:2">
+    <li><span class="endpoint">POST /reset</span> — start a new episode</li>
+    <li><span class="endpoint">POST /step</span> — take a moderation action</li>
+    <li><span class="endpoint">GET  /state</span> — full episode state</li>
+    <li><span class="endpoint">GET  /grade/{task}</span> — normalized score [0,1]</li>
+  </ul>
+</div>
+</body></html>"""
+```
+
 ---
 
-BUG #15
-Severity: CRITICAL
-Location: sim/social_graph.py → get_graph_features() → line 190
-Bug: Computes community_idx = comm_i / max(len(self._communities_cache) - 1, 1) but if communities_cache has only 1 community, divides by max(0, 1)=1, giving normalized value of comm_i/1 which can be >= 1.0 if comm_i >= 1, violating [0,1] bounds.
+**Enhancement 2 — Richer `/grade` response with per-component breakdown**
+
+Currently the response only shows precision/recall/f1/mean_reward. Add the score formula and component weights so it's interpretable.
+
+```python
+# In grade_task(), expand the return dict:
+return {
+    "task": task_name,
+    "score": round(score, 4),
+    "score_formula": {
+        "task_spam":   "0.7 × F1 + 0.3 × sigmoid(mean_reward / 50)",
+        "task_misinfo":"0.6 × F1 + 0.4 × max(0, 1 - mean_hop/max_hops)",
+        "task_cib":    "0.5 × recall + 0.5 × F1 - min(collateral_rate×2, 0.5)",
+    }.get(task_name, "F1"),
+    "details": {
+        "precision":           round(float(task_metrics.get("precision", 0)), 4),
+        "recall":              round(float(task_metrics.get("recall", 0)), 4),
+        "f1":                  round(float(task_metrics.get("f1", 0)), 4),
+        "mean_reward":         round(float(task_metrics.get("mean_reward", 0)), 4),
+        "mean_episode_length": round(float(task_metrics.get("mean_episode_length", 0)), 1),
+        "time_to_detection":   round(float(task_metrics.get("time_to_detection", 0)), 1),
+        "mean_collateral":     round(float(task_metrics.get("mean_collateral", 0)), 2),
+        "n_episodes":          n_episodes,
+        "agent": "rule-based baseline",
+    },
+}
+```
+
 ---
 
-BUG #16
-Severity: MAJOR
-Location: sim/content_gen.py → tick() → lines 98-118
-Bug: In BFS spread loop, iterates over self._current_frontier and builds self._next_frontier, then at line 120 assigns self._current_frontier = self._next_frontier, but if next_frontier is empty (no new nodes infected), current_frontier becomes empty and subsequent ticks do nothing, but is_spread_done() at line 137 checks if not self._current_frontier which returns True, terminating spread prematurely even if max_hops not reached.
+**Enhancement 3 — `/grade/all` endpoint**
+
+Run all three tasks in one call and return a combined score.
+
+```python
+@app.get("/grade/all", tags=["grading"])
+def grade_all(n_episodes: int = 10, seed: int = 42):
+    results = {}
+    total = 0.0
+    for task in TASK_CONFIG_MAP:
+        r = grade_task(task, n_episodes=n_episodes, seed=seed)
+        results[task] = r
+        total += r["score"]
+    results["combined_score"] = round(total / len(TASK_CONFIG_MAP), 4)
+    return results
+```
+
 ---
 
-BUG #17
-Severity: CRITICAL
-Location: tasks/task_misinfo.py → step() → lines 145-158
-Bug: After calling content_engine.remove_content() or tick(), refreshes legitimacy_score from live spread state by reading obs indices directly, but if is_spread_done() is True, get_content_observation() returns zeros array, causing legitimacy_score to be computed from zero spread_rate and engagement, incorrectly boosting legitimacy of removed misinformation.
+**Enhancement 4 — Streamlit dashboard: fix the graph rendering blank state**
+
+The graph only shows for task_cib but shows a placeholder for task_spam/misinfo. Add proper per-task visualization.
+
+In `dashboard/app.py`, replace the graph tab content with:
+
+```python
+with tab_graph:
+    state_dict = env.state()
+    active_task = state_dict.get("active_task", "")
+    
+    if "cib" in active_task.lower():
+        st.caption("Node colors: 🟢 Real · 🔴 Bot · 🟡 Under review · ⬜ Removed")
+        try:
+            html = _build_graph_html(env)
+            components.html(html, height=640, scrolling=False)
+        except Exception as e:
+            st.warning(f"Graph unavailable: {e}")
+    elif "spam" in active_task.lower():
+        # Show current account feature radar
+        if st.session_state.obs is not None:
+            obs = st.session_state.obs
+            feature_names = ["age","posts/hr","follower_ratio","login_var",
+                             "content_rep","profile","device","ip_div"]
+            df_feat = pd.DataFrame({
+                "Feature": feature_names,
+                "Value": [float(obs[i]) for i in range(8)]
+            })
+            st.bar_chart(df_feat.set_index("Feature"))
+            gt = st.session_state.log[-1]["Ground Truth"] if st.session_state.log else "?"
+            st.caption(f"Current account ground truth: **{gt}**")
+    elif "misinfo" in active_task.lower():
+        if st.session_state.obs is not None:
+            obs = st.session_state.obs
+            feat_names = ["spread_rate","fact_check","engagement","credibility",
+                          "hop_count","timestep"]
+            df_feat = pd.DataFrame({
+                "Feature": feat_names,
+                "Value": [float(obs[i]) for i in range(6)]
+            })
+            st.bar_chart(df_feat.set_index("Feature"))
+```
+
 ---
 
-BUG #18
-Severity: MAJOR
-Location: env/rewards.py → _compute_fp_cost() → line 132
-Bug: Enforces minimum legitimacy of 0.1 via max(legitimacy_score, 0.1) to fix issue #45, but this applies to all actions including WARN and ESCALATE where comment says penalty scales by legitimacy - now removes with legitimacy 0.0 get 0.1 penalty floor, but warns with legitimacy 0.0 also get 0.1 * 0.3 = 0.03 instead of 0.0, changing reward semantics unexpectedly.
+**Enhancement 5 — Streamlit dashboard: add reward breakdown panel**
+
+After each step, show the decomposed reward so the user can see why the agent got that reward.
+
+```python
+# Add a new tab in the dashboard:
+tab_log, tab_graph, tab_rewards, tab_breakdown = st.tabs([
+    "📋 Decision Log", "🕸️ Network Graph", "📈 Reward Chart", "🔍 Last Reward"
+])
+
+with tab_breakdown:
+    if st.session_state.log:
+        last = st.session_state.log[-1]
+        # Pull from env step info stored in session
+        breakdown = st.session_state.get("last_breakdown", {})
+        if breakdown:
+            cols = st.columns(5)
+            labels = ["correctness","fp_cost","collateral","speed","escalation"]
+            for col, lbl in zip(cols, labels):
+                col.metric(lbl, f"{breakdown.get(lbl, 0):.3f}")
+            st.caption(f"Total: **{breakdown.get('total', 0):.4f}**")
+        else:
+            st.info("Step forward to see reward breakdown.")
+```
+
+In `step_agent()`, add:
+```python
+st.session_state.last_breakdown = info.get("reward_breakdown", {})
+```
+
 ---
 
-BUG #19
-Severity: CRITICAL
-Location: training/train_ppo.py → main() → lines 78-82
-Bug: For task_cib, forces DummyVecEnv to avoid pickling issues, but curriculum callback at line 90 calls env.env_method("apply_overrides") which on DummyVecEnv with n_envs=1 works, but if user manually sets n_envs > 1 for task_cib, DummyVecEnv is used but apply_overrides will be called on each sub-env independently, causing config drift between parallel envs.
+**Enhancement 6 — Streamlit dashboard: episode summary on termination**
+
+```python
+# At the end of the auto-play block, when terminated:
+if st.session_state.terminated or st.session_state.truncated:
+    st.session_state.running = False
+    st.session_state.episode_rewards.append(st.session_state.ep_reward)
+    
+    # Show summary
+    with st.expander("📊 Episode Summary", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Reward", f"{st.session_state.ep_reward:.2f}")
+        c2.metric("Bots Removed", st.session_state.tp)
+        c3.metric("Innocents Removed", st.session_state.fp)
+        c4.metric("Steps", st.session_state.step)
+        
+        if st.session_state.tp + st.session_state.fp > 0:
+            precision = st.session_state.tp / (st.session_state.tp + st.session_state.fp)
+            st.progress(precision, text=f"Precision: {precision:.1%}")
+```
+
 ---
 
-BUG #20
-Severity: MAJOR
-Location: training/train_dqn.py → main() → lines 78-82
-Bug: Identical to train_ppo.py bug - forces DummyVecEnv for task_cib but doesn't prevent n_envs > 1, allowing parallel envs with diverging configs under curriculum.
+**Enhancement 7 — Add `/metrics` endpoint for HF Space monitoring**
+
+```python
+@app.get("/metrics", tags=["meta"])
+def metrics():
+    """Prometheus-style text metrics for HF Space monitoring."""
+    lines = []
+    for task, env in _envs.items():
+        lines.append(f'socialguard_env_timestep{{task="{task}"}} {env._timestep}')
+        lines.append(f'socialguard_env_cumulative_reward{{task="{task}"}} {env._cumulative_reward:.4f}')
+    return "\n".join(lines) or "# no envs initialized"
+```
+
 ---
 
-BUG #21
-Severity: CRITICAL
-Location: baseline.py → _infer_task() → lines 77-82
-Bug: Checks if obs[8:] has any non-zero values to detect task_cib, but task_misinfo uses indices 0-5 with 6-67 zeroed - if obs[6:8] are exactly zero but obs[8:] are zero, returns "task_misinfo", but if obs has all zeros (terminal state), also returns "task_misinfo", causing wrong scoring heuristic.
----
+## Summary tableFix the 12 accuracy bugs first in this order — bugs 1, 2, and 3 are the ones most directly causing wrong scores on `/grade`, and bug 4 (empty frontier) inflates episode lengths which feeds back into bugs 1 and 2. Once those four are patched the scores will stabilize. The remaining bugs are real but affect edge cases or training metrics rather than the live `/grade` endpoint.
 
-BUG #22
-Severity: MAJOR
-Location: baseline.py → run_evaluation() → lines 176-185
-Bug: Counts tp/fp/fn by checking if action == ACTION_REMOVE and ground_truth, but doesn't account for REDUCE_REACH which also terminates content in task_misinfo - true positives via REDUCE_REACH are missed, causing incorrect F1 calculation.
----
+For the HF Space UI, the three P0 server enhancements take under an hour total and make the space dramatically more usable — right now the root URL returns a blank 404, so visitors have no idea what the API does or how to test it.
 
-BUG #23
-Severity: CRITICAL
-Location: evaluate.py → load_model() → lines 28-38
-Bug: Checks if path is under trusted_root using "if trusted_root not in path.parents" but path.parents doesn't include path itself - if model is directly in models/ (not in subdirectory), path.parent is models/ which equals trusted_root, but trusted_root not in [models/] returns True, incorrectly rejecting valid paths.
----
-
-BUG #24
-Severity: MAJOR
-Location: server.py → grade_task() → lines 161-174
-Bug: Creates isolated env instance for grading with seed_offset=seed, runs grader.evaluate with base_seed=seed, so first episode gets seed=seed+0+seed = 2*seed instead of seed, causing non-deterministic results compared to direct grader usage.
----
-
-BUG #25
-Severity: CRITICAL
-Location: tests/test_grader.py → test_grader_normalized_score_bounds() → line 18
-Bug: Tests task_cib normalized_score with collateral_damage=10.0 and real_nodes_count=50 giving collateral_rate=0.2, penalty=0.4, but formula is max(0, 0.5*recall + 0.5*f1 - penalty) - with recall=0 and f1=0, score = max(0, -0.4) = 0, which is in bounds, but test doesn't verify the actual expected score, just that it's in [0,1], missing potential formula bugs.
----
-
-BUG #26
-Severity: MAJOR
-Location: dashboard/graph_view.py → apply_decision_log() → lines 47-74
-Bug: Generates JavaScript that updates node colors by calling nodes.update(updates), but if network hasn't finished initializing when JS executes (streaming HTML), nodes variable may be undefined, causing JS error that's silently ignored by try/catch, leaving graph in wrong state.
----
-
-BUG #27
-Severity: CRITICAL
-Location: env/env.py → apply_overrides() → lines 257-277
-Bug: After merging overrides into self._cfg, refreshes self._env_cfg, self._task_cfg, self._reward_cfg references, then rebuilds reward_engine, but doesn't rebuild the task instance - existing self._task still uses old config values, causing curriculum changes to be ignored until next reset().
----
-
-BUG #28
-Severity: MAJOR
-Location: tasks/task_spam.py → _compute_legitimacy() → lines 181-196
-Bug: Adds noise via self._rng.normal(0.0, self._noise_level * 0.1) but doesn't clip result to [0, 1] before final np.clip at line 196 - if noise is extreme negative, score + noise could be very negative, then clipping to 0.0 effectively removes all signal variation for low-legitimacy accounts.
----
-
-BUG #29
-Severity: CRITICAL
-Location: tasks/task_cib.py → step() → lines 231-244
-Bug: Checks if current_node in self._graph.graph.nodes() before removing, but decision_log update at line 239-242 happens after remove_node call at line 236 - if node removal triggers cascading removes via graph updates, entity_id may already be invalid when decision_log is updated.
----
-
-BUG #30
-Severity: MAJOR
-Location: server.py → add CORS middleware → lines 18-24
-Bug: Sets allow_credentials=False but allow_origins=["*"] - this combination works but if later allow_credentials is changed to True, wildcard origins will cause CORS errors in browsers, silently breaking authenticated requests.
----
-
-BUG #31
-Severity: CRITICAL
-Location: graders/grader.py → _compile_results() → lines 102-107
-Bug: Computes time_to_detection from raw_times list, but if no detections occurred (empty list), falls back to mean(counts["lengths"]) for task_misinfo/spam or 0.0 for task_cib - inconsistent fallback logic causes task_cib time_to_detection to be 0 when it should indicate no detection (high value).
----
-
-BUG #32
-Severity: MAJOR
-Location: training/callbacks.py → CurriculumCallback._maybe_apply() → lines 72-83
-Bug: Finds latest phase where num_timesteps >= threshold, but if training is paused and resumed from checkpoint, num_timesteps resets or jumps, causing curriculum to re-apply earlier phases or skip phases entirely.
----
-
-BUG #33
-Severity: CRITICAL
-Location: server.py → get_env_and_lock() → line 40
-Bug: Raises HTTPException with status_code=404 for unknown task, but this is inside a helper function called during env initialization - if called from reset_env or step_env, HTTPException propagates correctly, but if called elsewhere, 404 doesn't match actual error (should be 400 Bad Request for invalid task parameter).
----
-
-BUG #34
-Severity: MAJOR
-Location: sim/social_graph.py → _ensure_communities_cache() → lines 199-210
-Bug: Computes greedy_modularity_communities which is non-deterministic unless graph iteration order is fixed - even with seeded graph generation, community detection can vary between runs, breaking reproducibility.
----
-
-BUG #35
-Severity: CRITICAL
-Location: tasks/task_cib.py → reset() → lines 111-148
-Bug: Disk cache stores embeddings with key based on config tuple including seed, but if same seed is used across multiple runs with different graph instances, cache returns stale embeddings from first run, causing node_id mismatches when graph structure differs.
----
-
-BUG #36
-Severity: MAJOR
-Location: inference.py → emit_end() → line 65
-Bug: Formats rewards as comma-separated string with f"{r:.2f}" but if all_rewards list is empty (episode failed immediately), join produces empty string which violates [END] format specification requiring rewards field.
----
-
-BUG #37
-Severity: CRITICAL
-Location: env/env.py → step() → lines 192-199
-Bug: Copies task_info dict and then overwrites specific keys like entity_id, ground_truth, but if task_info already contains these keys with different values, creates inconsistency - entity_id from pre_step_info (line 174) can differ from task_info's entity_id post-step.
----
-
-BUG #38
-Severity: MAJOR
-Location: dashboard/app.py → get_env() → lines 58-68
-Bug: Compares st.session_state.sg_env_config_path (string) with str(cfg_path) to detect config changes, but if config file is modified on disk without path changing, stale env is reused with old config values.
----
-
-BUG #39
-Severity: CRITICAL
-Location: sim/content_gen.py → reset() → lines 69-96
-Bug: Sets post.fact_check_flag to float(rng.random() < 0.6) which converts boolean to float (0.0 or 1.0), but observation spec expects fact_check_flag in {0, 1} - float precision could cause values like 0.999999 or 1.000001 in edge cases with floating point errors.
----
-
-BUG #40
-Severity: MAJOR
-Location: tasks/task_misinfo.py → get_current_hop() → lines 91-95
-Bug: Returns content_engine.get_current_hop() or 0, but if content_engine is not None but is_spread_done() is True, returns stale hop count from ended episode instead of capping at max_hops or returning sentinel value.
----
-
-BUG #41
-Severity: CRITICAL
-Location: training/callbacks.py → TensorboardCallback._on_step() → lines 61-67
-Bug: Logs task_cib metrics from info dict only when episode ends (done=True), but if episode is truncated (not terminated), final bots_removed/real_removed counts are never logged, causing incomplete metrics in TensorBoard.
----
-
-BUG #42
-Severity: MAJOR
-Location: env/rewards.py → _compute_speed_bonus() → lines 167-179
-Bug: Computes bonus = 1.0 - (hop_clamped / speed_max_hops) but if speed_max_hops is 0 (misconfigured), causes ZeroDivisionError - should validate config at engine init.
----
-
-BUG #43
-Severity: CRITICAL
-Location: baseline.py → act() → lines 84-113
-Bug: Infers task from observation padding, then calls task-specific scoring, but if task inference is wrong (bug #21), uses mismatched scoring heuristic - e.g., scoring task_cib observation with task_misinfo formula produces nonsense suspicion scores.
----
-
-BUG #44
-Severity: MAJOR
-Location: graders/grader.py → evaluate() → lines 48-57
-Bug: Resets env with seed=base_seed+ep for reproducibility, but if env's internal RNG state persists across resets (not fully reseeded), episodes aren't actually independent, causing correlated outcomes.
----
-
-BUG #45
-Severity: CRITICAL
-Location: tests/test_env.py → test_step_before_reset_raises() → line 80
-Bug: Tests that step() before reset() raises RuntimeError, but actual env.py implementation (line 160) checks if self._task is None and raises RuntimeError, but if reset() is called then another reset() is called, _task is not None so step() succeeds even though second reset invalidated state.
----
-
-BUG #46
-Severity: MAJOR
-Location: dashboard/app.py → main() → lines 311-316
-Bug: Auto-play loop calls step_agent, then time.sleep, then st.rerun - if step_agent takes longer than 1/auto_speed seconds, sleep time becomes negative causing instant rerun loop, flooding server with requests.
----
-
-BUG #47
-Severity: CRITICAL
-Location: server.py → _deep_cast_numpy() → lines 100-109
-Bug: Recursively converts numpy types but doesn't handle numpy scalar types like np.int32 or np.float64 - isinstance(obj, np.generic) at line 102 should catch these but if obj is wrapped in list/tuple, recursion converts list items but outer container remains, causing JSON serialization to fail on nested numpy types.
----
-
-BUG #48
-Severity: MAJOR
-Location: tasks/task_cib.py → _load_current_node() → lines 392-410
-Bug: Refreshes embeddings when _embeddings_stale and removed_since_refresh >= refresh_every, but refresh sets _embeddings_stale=False, so if refresh fails with exception (line 407), _embeddings_stale becomes False but embeddings are still stale, blocking future refresh attempts.
----
-
-BUG #49
-Severity: CRITICAL
-Location: env/env.py → state() → lines 282-298
-Bug: Calls _deep_cast_numpy(self._task.get_info()) but if task.get_info() returns dict with numpy arrays nested deeply (e.g., reward_breakdown contains np.float32), recursion may miss them depending on nesting order, causing JSON serialization failures.
----
-
-BUG #50
-Severity: MAJOR
-Location: sim/social_graph.py → tick() → lines 168-185
-Bug: Samples two nodes from all_nodes for new edge creation, but doesn't check if a==b before checking has_edge, so if same node is sampled twice, has_edge(a,b) with a==b returns False (self-loops don't exist by default), then attempts to add edge which may raise NetworkX error or create self-loop depending on graph type.
+critical	graders/grader.py	task_misinfo speed_score goes negative → always 0	task_misinfo score = 0.6×F1 only, ignores speed entirely
+critical	server.py	grade fallback passes full results dict to normalized_score	task score = 0 whenever task key lookup misses
+critical	tasks/task_misinfo.py	get_current_hop() returns max_hops after decisive action	detection_times inflated → speed component wrong
+major	sim/content_gen.py	Empty frontier never terminates spread via frontier check	Episodes last max_timesteps unnecessarily, inflating lengths
+major	graders/grader.py	time_to_detection variable uninitialized on unknown task	UnboundLocalError crash on any non-standard task name
+major	graders/grader.py	ep_tp_added blocks multiple TP detection_times per episode	task_cib detection_times understated, speed metric wrong
+major	sim/social_graph.py	community_assignment can be 1.0+ when only 1 community	task_cib feature out of [0,1] bounds, clipped but zero-variance
+major	server.py	collateral_threshold not passed from actual config to metrics	task_cib score uses hardcoded 10 which may not match config
+major	env/rewards.py	ACTION_REDUCE_REACH gets speed_bonus=1.0 but correctness=0.5	task_misinfo reward inconsistent for decisive reduce_reach
+major	training/callbacks.py	Truncated episodes never log bots_removed / real_removed	TensorBoard task_cib metrics silently incomplete
+major	baseline.py	All-zeros obs routed to task_cib instead of safe default	Terminal step misrouted, wrong scoring heuristic applied
+major	inference.py	emit_end not guaranteed to fire after timeout on Windows	[END] line missing → format validator fails
+UI enhancements
+Priority	Where	Enhancement
+P0	server.py	Root / HTML page with live links, task descriptions, quick-grade buttons
+P0	server.py	Grade response includes formula string + all sub-metrics (time_to_detection, collateral)
+P0	server.py	GET /grade/all — run all 3 tasks and return combined_score
+P1	dashboard/app.py	Per-task graph tab: feature bar chart for spam, spread chart for misinfo, network for CIB
+P1	dashboard/app.py	Reward breakdown panel showing all 5 sub-components after each step
+P1	dashboard/app.py	Episode summary expander on termination with precision metric bar
+P2	server.py	GET /metrics text endpoint for HF Space health monitoring
+P2	server.py	FastAPI app title, description, contact and license in OpenAPI schema
+P2	dashboard/app.py	Multi-episode history chart comparing cumulative rewards across runs

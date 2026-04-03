@@ -128,6 +128,7 @@ def init_session_state() -> None:
         "decision_log": {},
         "tp": 0,
         "fp": 0,
+        "last_breakdown": {},
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -144,6 +145,7 @@ def reset_episode_state() -> None:
     st.session_state.decision_log = {}
     st.session_state.tp = 0
     st.session_state.fp = 0
+    st.session_state.last_breakdown = {}
     st.session_state.running = False
     # Invalidate graph cache so it's rebuilt for the new episode
     st.session_state.pop("graph_base_html", None)
@@ -199,6 +201,7 @@ def step_agent(env: SocialGuardEnv, agent: Any) -> None:
         "Reward": round(float(reward), 4),
         "Cumulative": round(st.session_state.ep_reward, 4),
     })
+    st.session_state.last_breakdown = info.get("reward_breakdown", {})
 
     # Track node decision for graph coloring (task_cib)
     state_dict = env.state()
@@ -380,18 +383,64 @@ def main() -> None:
             st.rerun()
 
     # --- Main Tabs ---
-    tab_log, tab_graph, tab_rewards = st.tabs(["📋 Decision Log", "🕸️ Network Graph", "📈 Reward Chart"])
+    tab_log, tab_graph, tab_rewards, tab_breakdown = st.tabs(
+        ["📋 Decision Log", "🕸️ Network Graph", "📈 Reward Chart", "🔍 Last Reward"]
+    )
 
     with tab_log:
         render_decision_log(list(reversed(st.session_state.log[-100:])))
 
     with tab_graph:
-        st.caption("Node colors: 🟢 Real user · 🔴 Bot · 🟡 Under review · ⬜ Removed")
-        try:
-            html = _build_graph_html(env)
-            components.html(html, height=640, scrolling=False)
-        except Exception as e:
-            st.warning(f"Could not render graph: {e}")
+        state_dict = env.state()
+        active_task = state_dict.get("active_task", "")
+
+        if "cib" in active_task.lower():
+            st.caption("Node colors: 🟢 Real user · 🔴 Bot · 🟡 Under review · ⬜ Removed")
+            try:
+                html = _build_graph_html(env)
+                components.html(html, height=640, scrolling=False)
+            except Exception as e:
+                st.warning(f"Graph unavailable: {e}")
+        elif "spam" in active_task.lower():
+            if st.session_state.obs is not None:
+                obs = st.session_state.obs
+                feature_names = [
+                    "age",
+                    "posts/hr",
+                    "follower_ratio",
+                    "login_var",
+                    "content_rep",
+                    "profile",
+                    "device",
+                    "ip_div",
+                ]
+                df_feat = pd.DataFrame(
+                    {"Feature": feature_names, "Value": [float(obs[i]) for i in range(8)]}
+                )
+                st.bar_chart(df_feat.set_index("Feature"))
+                gt = st.session_state.log[-1]["Ground Truth"] if st.session_state.log else "?"
+                st.caption(f"Current account ground truth: **{gt}**")
+            else:
+                st.info("Reset episode to populate task features.")
+        elif "misinfo" in active_task.lower():
+            if st.session_state.obs is not None:
+                obs = st.session_state.obs
+                feat_names = [
+                    "spread_rate",
+                    "fact_check",
+                    "engagement",
+                    "credibility",
+                    "hop_count",
+                    "timestep",
+                ]
+                df_feat = pd.DataFrame(
+                    {"Feature": feat_names, "Value": [float(obs[i]) for i in range(6)]}
+                )
+                st.bar_chart(df_feat.set_index("Feature"))
+            else:
+                st.info("Reset episode to populate task features.")
+        else:
+            st.info("No active task graph available yet.")
 
     with tab_rewards:
         if st.session_state.cumulative_rewards:
@@ -403,12 +452,43 @@ def main() -> None:
         else:
             st.info("Cumulative reward chart will appear after the first step.")
 
+        if st.session_state.episode_rewards:
+            df_eps = pd.DataFrame({
+                "Episode": range(1, len(st.session_state.episode_rewards) + 1),
+                "Total Reward": st.session_state.episode_rewards,
+            }).set_index("Episode")
+            st.caption("Episode reward history")
+            st.bar_chart(df_eps)
+
+    with tab_breakdown:
+        if st.session_state.log:
+            breakdown = st.session_state.get("last_breakdown", {}) or {}
+            if breakdown:
+                cols = st.columns(5)
+                labels = ["correctness", "fp_cost", "collateral_damage", "speed_bonus", "escalation_penalty"]
+                for col, lbl in zip(cols, labels):
+                    col.metric(lbl, f"{float(breakdown.get(lbl, 0.0)):.3f}")
+                st.caption(f"Total: **{float(breakdown.get('total', 0.0)):.4f}**")
+            else:
+                st.info("Step forward to see reward breakdown.")
+        else:
+            st.info("No steps yet.")
+
     # --- Auto-play loop ---
     if st.session_state.running:
         if st.session_state.terminated or st.session_state.truncated:
             st.session_state.running = False
             st.session_state.episode_rewards.append(st.session_state.ep_reward)
             st.sidebar.success(f"Episode finished. Reward: {st.session_state.ep_reward:.2f}")
+            with st.expander("📊 Episode Summary", expanded=True):
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Total Reward", f"{st.session_state.ep_reward:.2f}")
+                c2.metric("Bots Removed", st.session_state.tp)
+                c3.metric("Innocents Removed", st.session_state.fp)
+                c4.metric("Steps", st.session_state.step)
+                if st.session_state.tp + st.session_state.fp > 0:
+                    precision = st.session_state.tp / (st.session_state.tp + st.session_state.fp)
+                    st.progress(precision, text=f"Precision: {precision:.1%}")
         else:
             step_agent(env, agent)
             time.sleep(max(0.0, 1.0 / max(float(auto_speed), 1.0)))

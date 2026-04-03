@@ -123,10 +123,8 @@ class BaselineAgent:
 
     def _infer_task(self, obs: np.ndarray) -> str:
         """Infer active task from sparse padding patterns."""
-        # All-zero terminal observations are ambiguous across tasks.
-        # Bias to task_cib so we avoid misrouting CIB observations into Task 2 logic.
         if obs.shape[0] >= OBS_DIM and not np.any(np.abs(obs) > 1e-8):
-            return "task_cib"
+            return "task_spam"
         if np.any(np.abs(obs[8:]) > 1e-8):
             return "task_cib"
         if np.any(np.abs(obs[6:8]) > 1e-8):
