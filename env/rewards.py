@@ -172,7 +172,9 @@ class RewardEngine:
         if is_bot:
             if action == ACTION_REMOVE:
                 return 1.0
-            if action in (ACTION_WARN, ACTION_REDUCE_REACH):
+            if action == ACTION_REDUCE_REACH:
+                return 0.8
+            if action == ACTION_WARN:
                 return 0.5   # partial — bot slowed but not eliminated
             if action == ACTION_ESCALATE:
                 return 0.3   # escalate on a bot is cautious but valid

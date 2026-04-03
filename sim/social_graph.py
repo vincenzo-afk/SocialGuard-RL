@@ -227,7 +227,11 @@ class SocialGraph:
         # Community assignment: normalized index from greedy communities
         self._ensure_communities_cache()
         comm_i = self._community_index_by_node.get(node_id, 0)
-        community_idx = comm_i / max(len(self._communities_cache) - 1, 1)
+        n_comms = len(self._communities_cache)
+        if n_comms <= 1:
+            community_idx = 0.0
+        else:
+            community_idx = comm_i / (n_comms - 1)
 
         # Activity → posts_per_hour normalised to [0, 1]
         activity = self._node_attrs[node_id].get("activity_score", 0.5)

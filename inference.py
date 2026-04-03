@@ -219,7 +219,7 @@ def run_task(
             except Exception:
                 pass
         
-        emit_end(success, step_count, all_rewards)
+        emit_end(success, step_count, all_rewards or [0.0])
 
 
 # ---------------------------------------------------------------------------

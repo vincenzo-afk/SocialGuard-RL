@@ -64,6 +64,7 @@ class TaskMisinfo(BaseTask):
         self._escalation_count: int = 0
         self._collateral_count: int = 0
         self._acted: bool = False       # True once agent takes a decisive action
+        self._final_hop: int = 0
 
     # ------------------------------------------------------------------
     # BaseTask interface
@@ -79,6 +80,7 @@ class TaskMisinfo(BaseTask):
         self._escalation_count = 0
         self._collateral_count = 0
         self._acted = False
+        self._final_hop = 0
 
         # Build a smaller graph for Task 2 (faster episodes)
         small_cfg = dict(self._graph_cfg)
@@ -133,8 +135,8 @@ class TaskMisinfo(BaseTask):
         """Return the current hop count — used for the timing bonus."""
         if self._content_engine is None:
             return 0
-        if self._content_engine.is_spread_done():
-            return int(getattr(self._content_engine, "_max_hops", 0))
+        if self._acted:
+            return self._final_hop
         return self._content_engine.get_current_hop()
 
     def get_escalation_count(self) -> int:
@@ -184,6 +186,7 @@ class TaskMisinfo(BaseTask):
 
         # Decisive actions stop the episode
         if action in (ACTION_REMOVE, ACTION_REDUCE_REACH):
+            self._final_hop = self._content_engine.get_current_hop()
             if action == ACTION_REMOVE:
                 self._content_engine.remove_content()
                 if self._current_gt == 0:

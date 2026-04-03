@@ -64,8 +64,7 @@ class TensorboardCallback(BaseCallback):
             info = infos[i] if i < len(infos) else {}
             if not isinstance(info, dict):
                 continue
-            truncated = bool(info.get("truncated", False) or info.get("TimeLimit.truncated", False))
-            episode_end = bool(done) or truncated
+            episode_end = bool(done) or bool(info.get("truncated", False)) or bool(info.get("TimeLimit.truncated", False))
             if episode_end:
 
                 # 1. Log reward breakdown if present

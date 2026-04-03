@@ -78,7 +78,6 @@ class Grader:
             task_name = info.get("task_name", "unknown")
             ep_reward: float = 0.0
             ep_steps: int = 0
-            ep_tp_added = False
             bots_seen: set[Any] = set()
             bots_removed: set[Any] = set()
             false_removes: int = 0
@@ -110,16 +109,14 @@ class Grader:
 
                 if gt == 1:
                     bots_seen.add(entity_id)
-                    if act == ACTION_REMOVE:
+                    if act == ACTION_REMOVE and entity_id not in bots_removed:
                         bots_removed.add(entity_id)
-                        if not ep_tp_added:
-                            if task_name == "task_misinfo":
-                                metrics[task_name]["detection_times"].append(
-                                    int(step_info.get("hop_count", step_info["episode_step"]))
-                                )
-                            else:
-                                metrics[task_name]["detection_times"].append(step_info["episode_step"])
-                            ep_tp_added = True
+                        if task_name == "task_misinfo":
+                            metrics[task_name]["detection_times"].append(
+                                int(step_info.get("hop_count", step_info["episode_step"]))
+                            )
+                        else:
+                            metrics[task_name]["detection_times"].append(step_info["episode_step"])
                 elif act == ACTION_REMOVE:
                     false_removes += 1
                 else:
@@ -156,9 +153,9 @@ class Grader:
             raw_times = counts["detection_times"]
             if raw_times:
                 time_to_detection = float(np.mean(raw_times))
-            elif task_name in ("task_misinfo", "task_spam", "task_cib"):
-                # No detection: treat as slow detection, not instant.
-                time_to_detection = float(np.mean(counts["lengths"])) if counts["lengths"] else 20.0
+            else:
+                fallback_ttd = float(np.mean(counts["lengths"])) if counts["lengths"] else 20.0
+                time_to_detection = min(fallback_ttd, 20.0)
             
             collateral = counts["collateral"]
             mean_collateral = float(np.mean(collateral)) if collateral else 0.0
@@ -214,8 +211,8 @@ class Grader:
         if task_name == "task_misinfo":
             # speed_score = 1.0 − (mean_detection_hop / max_hops)
             # score = 0.6 × F1 + 0.4 × max(0, speed_score)
-            speed_score = 1.0 - (time_to_detection / max_hops)
-            return float(np.clip(0.6 * f1 + 0.4 * max(0.0, speed_score), 0.0, 1.0))
+            speed_score = max(0.0, 1.0 - (min(time_to_detection, float(max_hops)) / max_hops))
+            return float(np.clip(0.6 * f1 + 0.4 * speed_score, 0.0, 1.0))
 
         if task_name == "task_cib":
             # bots_removed_pct approximated from tp / (tp + fn) = recall

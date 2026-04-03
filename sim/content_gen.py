@@ -186,8 +186,8 @@ class ContentEngine:
                         self._visited.add(neighbour)
                         self._next_frontier.append(neighbour)
 
+        self._current_frontier = self._next_frontier
         if self._next_frontier:
-            self._current_frontier = self._next_frontier
             self._post.hop_count += 1
             self._post.total_reach += len(self._next_frontier)
 
