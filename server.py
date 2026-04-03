@@ -2,7 +2,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import threading
 import time
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +39,12 @@ TASK_CONFIG_MAP = {
     "task_spam": "configs/task1.yaml",
     "task_misinfo": "configs/task2.yaml",
     "task_cib": "configs/task3.yaml",
+}
+
+SCORE_FORMULA_MAP = {
+    "task_spam": "0.7 * F1 + 0.3 * sigmoid(mean_reward / 50)",
+    "task_misinfo": "0.6 * F1 + 0.4 * max(0, 1 - mean_hop/max_hops)",
+    "task_cib": "0.5 * recall + 0.5 * F1 - min(collateral_rate*2, 0.5)",
 }
 
 
@@ -79,6 +85,48 @@ def _deep_cast_numpy(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_deep_cast_numpy(i) for i in obj]
     return obj
+
+
+def _score_formula(task_name: str) -> str:
+    return SCORE_FORMULA_MAP.get(task_name, "F1")
+
+
+def _default_grade_result(task_name: str, requested_episodes: int, reason: str = "") -> dict[str, Any]:
+    details: dict[str, Any] = {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "mean_reward": 0.0,
+        "mean_episode_length": 0.0,
+        "time_to_detection": 0.0,
+        "mean_collateral": 0.0,
+        "n_episodes": 0,
+        "requested_n_episodes": max(0, int(requested_episodes)),
+        "agent": "rule-based baseline",
+        "status": "empty",
+    }
+    if reason:
+        details["reason"] = reason
+    return {
+        "task": task_name,
+        "score": 0.0,
+        "score_formula": _score_formula(task_name),
+        "details": details,
+    }
+
+
+def _ensure_env_session(task_name: str, seed: Optional[int] = None) -> bool:
+    env, lock = get_env_and_lock(task_name)
+    with lock:
+        if getattr(env, "_task", None) is None:
+            env.reset(seed=seed)
+            return True
+    return False
+
+
+def _is_empty_grading_error(exc: HTTPException) -> bool:
+    detail = str(getattr(exc, "detail", ""))
+    return exc.status_code == 400 or "No metrics compiled for task" in detail
 
 
 @app.middleware("http")
@@ -240,11 +288,7 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
             return {
                 "task": task_name,
                 "score": round(score, 4),
-                "score_formula": {
-                    "task_spam": "0.7 * F1 + 0.3 * sigmoid(mean_reward / 50)",
-                    "task_misinfo": "0.6 * F1 + 0.4 * max(0, 1 - mean_hop/max_hops)",
-                    "task_cib": "0.5 * recall + 0.5 * F1 - min(collateral_rate*2, 0.5)",
-                }.get(task_name, "F1"),
+                "score_formula": _score_formula(task_name),
                 "details": {
                     "precision": round(float(task_metrics.get("precision", 0.0)), 4),
                     "recall": round(float(task_metrics.get("recall", 0.0)), 4),
@@ -267,13 +311,57 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
 
 @app.get("/grade/all", tags=["grading"])
 def grade_all(n_episodes: int = 10, seed: int = 42):
+    requested_episodes = max(0, int(n_episodes))
+    if not TASK_CONFIG_MAP:
+        return {
+            "combined_score": 0.0,
+            "status": "empty",
+            "message": "No grading tasks are configured.",
+        }
+
     results: dict[str, Any] = {}
     total = 0.0
+    initialized_tasks: list[str] = []
+    empty_tasks: list[str] = []
+
     for task in TASK_CONFIG_MAP:
-        graded = grade_task(task, n_episodes=n_episodes, seed=seed)
+        if _ensure_env_session(task, seed=seed):
+            initialized_tasks.append(task)
+
+        if requested_episodes == 0:
+            graded = _default_grade_result(task, requested_episodes, "No grading episodes requested.")
+            empty_tasks.append(task)
+            results[task] = graded
+            continue
+
+        try:
+            graded = grade_task(task, n_episodes=requested_episodes, seed=seed)
+        except HTTPException as exc:
+            if not _is_empty_grading_error(exc):
+                raise
+            graded = _default_grade_result(task, requested_episodes, str(exc.detail))
+            empty_tasks.append(task)
+
         results[task] = graded
         total += float(graded["score"])
+
+    completed_tasks = [
+        task
+        for task in TASK_CONFIG_MAP
+        if int(results.get(task, {}).get("details", {}).get("n_episodes", 0)) > 0
+    ]
     results["combined_score"] = round(total / len(TASK_CONFIG_MAP), 4)
+    results["status"] = "ok" if completed_tasks else "empty"
+    results["message"] = (
+        "Grading completed."
+        if completed_tasks
+        else "No completed grading data available yet; returning default scores."
+    )
+    results["completed_tasks"] = completed_tasks
+    if initialized_tasks:
+        results["initialized_tasks"] = initialized_tasks
+    if empty_tasks:
+        results["empty_tasks"] = empty_tasks
     return results
 
 
