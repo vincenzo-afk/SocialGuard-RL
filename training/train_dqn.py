@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
 import os
 import yaml
@@ -23,6 +24,15 @@ from training.callbacks import TensorboardCallback, CurriculumCallback, create_e
 from training.curriculum import task_cib_default_schedule
 
 logger = logging.getLogger(__name__)
+
+
+def _tensorboard_log_dir(output_dir: str) -> str | None:
+    if importlib.util.find_spec("tensorboard") is None:
+        logger.warning("tensorboard is not installed; disabling SB3 tensorboard logging.")
+        return None
+    tb_dir = os.path.join(output_dir, "tensorboard")
+    os.makedirs(tb_dir, exist_ok=True)
+    return tb_dir
 
 
 def load_config(default_path: str, task_path: str | None = None) -> dict[str, Any]:
@@ -55,8 +65,7 @@ def main() -> None:
 
     # Create directories
     os.makedirs(args.output_dir, exist_ok=True)
-    tb_log_dir = os.path.join(args.output_dir, "tensorboard")
-    os.makedirs(tb_log_dir, exist_ok=True)
+    tb_log_dir = _tensorboard_log_dir(args.output_dir)
 
     # 1. Load configuration
     cfg = load_config(args.config, args.task_config)
@@ -109,7 +118,7 @@ def main() -> None:
         eval_env,
         eval_freq=eval_freq // args.n_envs,
         n_eval_episodes=n_eval_episodes,
-        log_path=tb_log_dir,
+        log_path=tb_log_dir or args.output_dir,
         best_model_save_path=os.path.join(args.output_dir, args.run_name),
     )
     

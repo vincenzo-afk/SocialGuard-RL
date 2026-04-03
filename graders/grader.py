@@ -11,7 +11,7 @@ import collections
 import json
 import logging
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, Union
 
 import numpy as np
 from env.env import SocialGuardEnv
@@ -30,7 +30,7 @@ class BaselinePolicy(Protocol):
     def act(self, obs: np.ndarray) -> int: ...
 
 
-Policy = SB3Policy | BaselinePolicy
+Policy = Union[SB3Policy, BaselinePolicy]
 
 
 class Grader:
