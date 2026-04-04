@@ -32,4 +32,4 @@ training:
   n_epochs: 10
   n_eval_episodes: 20
   n_steps: 2048
-  total_timesteps: 500000
+  total_timesteps: 100000

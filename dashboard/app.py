@@ -194,9 +194,14 @@ def step_agent(env: SocialGuardEnv, agent: Any) -> None:
         elif gt == 0:
             st.session_state.fp += 1
 
+    flagged_account = info.get("flagged_account", "N/A")
+    flagged_reason = info.get("flagged_reason", "N/A")
+
     st.session_state.log.append({
         "Timestep": st.session_state.step,
         "Action": act_str,
+        "Account": flagged_account,
+        "Reason": flagged_reason,
         "Ground Truth": "Bot" if gt == 1 else "Real" if gt == 0 else "N/A",
         "Reward": round(float(reward), 4),
         "Cumulative": round(st.session_state.ep_reward, 4),
