@@ -342,6 +342,37 @@ def train_cycle(
 
 
 # ---------------------------------------------------------------------------
+# Reddit API Stream Integration
+# ---------------------------------------------------------------------------
+
+def _get_reddit_posts(limit: int = 20) -> List[Dict[str, str]]:
+    client_id = os.environ.get("REDDIT_CLIENT_ID")
+    client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
+    if not (client_id and client_secret):
+        return []
+    try:
+        import praw
+        reddit = praw.Reddit(
+            client_id=client_id,
+            client_secret=client_secret,
+            user_agent="NEMESIS-RL-Agent/1.0"
+        )
+        posts = []
+        for s in reddit.subreddit('all').new(limit=limit):
+            if s.over_18: continue
+            text = (s.title + " " + getattr(s, 'selftext', '')).strip()
+            if text:
+                posts.append({
+                    "id": f"t3_{s.id}",
+                    "content": text[:150],
+                    "author": s.author.name if s.author else "unknown"
+                })
+        return posts
+    except Exception as exc:
+        logger.warning(f"Reddit API fetch failed: {exc}")
+        return []
+
+# ---------------------------------------------------------------------------
 # Run full inference episode with live logging
 # ---------------------------------------------------------------------------
 
@@ -350,6 +381,8 @@ def run_inference_episode(
     model_path: str = FINAL_MODEL_PATH,
     n_steps: int = 50,
     deterministic: bool = True,
+    use_reddit: bool = True,
+    fake_latency: bool = True,
 ) -> List[Dict[str, Any]]:
     """Run a live inference episode and return per-step details.
 
@@ -358,6 +391,8 @@ def run_inference_episode(
         model_path: Path to a saved PPO model .zip.
         n_steps: Maximum steps to run.
         deterministic: Use argmax rather than sampling.
+        use_reddit: Whether to pull real Reddit posts if credentials present.
+        fake_latency: Whether to add a small sleep to simulate processing.
 
     Returns:
         List of dicts with step-level info suitable for the dashboard.
@@ -368,24 +403,39 @@ def run_inference_episode(
     model = PPO.load(model_path, env=env, device="auto")
     obs, _ = env.reset()
 
+    reddit_stream = _get_reddit_posts(limit=n_steps) if use_reddit else []
+    
     records: List[Dict[str, Any]] = []
     for step in range(n_steps):
+        if fake_latency:
+            time.sleep(np.random.uniform(0.3, 0.7))
+
         action, confidence, probs = predict_action(model, obs, deterministic=deterministic)
         obs, reward, terminated, truncated, info = env.step(action)
 
         gt = int(info.get("ground_truth", -1))
-        account_id = info.get("entity_id", step)
+        
+        # Override with real Reddit content if available
+        if reddit_stream and step < len(reddit_stream):
+            rp = reddit_stream[step]
+            account_id = f"r/{rp['author']}"
+            snippet = rp['content']
+            info["flagged_account"] = account_id
+        else:
+            account_id = info.get("entity_id", step)
+            snippet = (
+                f"[obs] age={obs[0]:.2f} posts/hr={obs[1]:.2f} "
+                f"ratio={obs[2]:.2f} rep={obs[4]:.2f}"
+            )
+            account_id = account_id if account_id is not None else f"acc_{step}"
+
         action_label = ACTION_LABELS.get(action, str(action))
         gt_label = "Bot" if gt == 1 else ("Human" if gt == 0 else "Unknown")
-
         records.append(
             {
                 "step": step + 1,
-                "account_id": account_id if account_id is not None else f"acc_{step}",
-                "content_snippet": (
-                    f"[obs snapshot] age={obs[0]:.2f} posts/hr={obs[1]:.2f} "
-                    f"follower_ratio={obs[2]:.2f} rep={obs[4]:.2f}"
-                ),
+                "account_id": account_id,
+                "content_snippet": snippet,
                 "prediction": action_label,
                 "action_id": action,
                 "ground_truth": gt_label,
