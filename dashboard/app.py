@@ -388,8 +388,8 @@ def main() -> None:
             st.rerun()
 
     # --- Main Tabs ---
-    tab_log, tab_graph, tab_rewards, tab_breakdown = st.tabs(
-        ["📋 Decision Log", "🕸️ Network Graph", "📈 Reward Chart", "🔍 Last Reward"]
+    tab_log, tab_graph, tab_rewards, tab_breakdown, tab_nemesis, tab_learning = st.tabs(
+        ["📋 Decision Log", "🕸️ Network Graph", "📈 Reward Chart", "🔍 Last Reward", "🤖 NEMESIS Live", "📉 Learning Curve"]
     )
 
     with tab_log:
@@ -478,6 +478,152 @@ def main() -> None:
                 st.info("Step forward to see reward breakdown.")
         else:
             st.info("No steps yet.")
+
+    # ---------------------------------------------------------------------------
+    # 🤖 NEMESIS Live Tab — model inference with Llama-4-Maverick
+    # ---------------------------------------------------------------------------
+    with tab_nemesis:
+        st.subheader("🤖 NEMESIS Neural Policy — Live Inference")
+        st.caption(
+            "Runs the trained NEMESIS policy network (PPO + NemesisPolicy) on a live episode. "
+            "The model was trained using Llama-4-Maverick-17B-128E-Instruct via HuggingFace "
+            "for semantic content encoding."
+        )
+
+        nemesis_model_path = "models/nemesis/final_model.zip"
+        nemesis_config = config_file
+        col_n1, col_n2 = st.columns([3, 1])
+        with col_n1:
+            nemesis_steps = st.slider(
+                "Inference steps", min_value=5, max_value=100, value=20, key="nemesis_steps"
+            )
+        with col_n2:
+            nemesis_det = st.toggle("Deterministic", value=True, key="nemesis_det")
+
+        if st.button("▶️ Run NEMESIS Inference", use_container_width=True, key="run_nemesis"):
+            import os
+            if not os.path.exists(nemesis_model_path):
+                st.warning(
+                    f"No trained model found at `{nemesis_model_path}`. "
+                    "Run `python3 agent.py --cycles 1` to train first."
+                )
+            else:
+                try:
+                    from agent import run_inference_episode
+                    with st.spinner("Running NEMESIS inference episode…"):
+                        records = run_inference_episode(
+                            config_path=nemesis_config,
+                            model_path=nemesis_model_path,
+                            n_steps=nemesis_steps,
+                            deterministic=nemesis_det,
+                        )
+                    st.session_state["nemesis_records"] = records
+                except Exception as exc:
+                    st.error(f"Inference failed: {exc}")
+
+        records = st.session_state.get("nemesis_records", [])
+        if records:
+            st.success(f"NEMESIS ran {len(records)} steps.")
+            # Metrics row
+            m_tp = sum(1 for r in records if r["prediction"] != "No Action" and r["ground_truth"] == "Bot")
+            m_fp = sum(1 for r in records if r["prediction"] != "No Action" and r["ground_truth"] == "Human")
+            m_rew = sum(r["reward"] for r in records)
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("Total Steps", len(records))
+            mc2.metric("True Positives", m_tp)
+            mc3.metric("False Positives", m_fp)
+            mc4.metric("Total Reward", f"{m_rew:.2f}")
+
+            # Decision table
+            df_records = pd.DataFrame([
+                {
+                    "Step": r["step"],
+                    "Account": r["account_id"],
+                    "Content": r["content_snippet"][:60] + "…" if len(r["content_snippet"]) > 60 else r["content_snippet"],
+                    "Prediction": r["prediction"],
+                    "Ground Truth": r["ground_truth"],
+                    "Reward": r["reward"],
+                    "Confidence": f"{r['confidence']:.3f}",
+                    "Flagged Reason": r["flagged_reason"],
+                }
+                for r in records
+            ])
+
+            def _color_verdict(row):
+                pred_is_action = row["Prediction"] != "No Action"
+                is_bot = row["Ground Truth"] == "Bot"
+                if pred_is_action and is_bot:
+                    return ["background-color: #d4edda"] * len(row)  # green — TP
+                elif pred_is_action and not is_bot:
+                    return ["background-color: #f8d7da"] * len(row)  # red — FP
+                return [""] * len(row)
+
+            st.dataframe(
+                df_records.style.apply(_color_verdict, axis=1),
+                use_container_width=True,
+            )
+
+            # Confidence distribution chart
+            conf_df = pd.DataFrame(
+                {"Step": [r["step"] for r in records], "Confidence": [r["confidence"] for r in records]}
+            ).set_index("Step")
+            st.caption("Model confidence per step")
+            st.line_chart(conf_df)
+        else:
+            st.info("Click 'Run NEMESIS Inference' to see live model decisions.")
+
+    # ---------------------------------------------------------------------------
+    # 📉 Learning Curve Tab
+    # ---------------------------------------------------------------------------
+    with tab_learning:
+        st.subheader("📉 NEMESIS Learning Curve")
+        st.caption(
+            "Sourced from `training_log.csv`."
+            " True Positive rate should rise and False Positive rate should fall as the model learns."
+        )
+        import os
+        log_path = "training_log.csv"
+        if os.path.exists(log_path):
+            try:
+                df_log = pd.read_csv(log_path)
+                if df_log.empty:
+                    st.info("training_log.csv is empty — run at least one training cycle.")
+                else:
+                    # Summary metrics
+                    latest = df_log.iloc[-1]
+                    lc1, lc2, lc3, lc4 = st.columns(4)
+                    lc1.metric("Latest TP Rate", f"{float(latest.get('tp_rate', 0)):.3f}")
+                    lc2.metric("Latest FP Rate", f"{float(latest.get('fp_rate', 0)):.3f}")
+                    lc3.metric("Latest Mean Reward", f"{float(latest.get('mean_reward', 0)):.3f}")
+                    lc4.metric("Latest Entropy", f"{float(latest.get('policy_entropy', 0)):.3f}")
+
+                    # TP/FP chart
+                    df_tpfp = df_log[["episode", "tp_rate", "fp_rate"]].set_index("episode")
+                    st.caption("True Positive Rate (↑ good) and False Positive Rate (↓ good)")
+                    st.line_chart(df_tpfp)
+
+                    # Reward chart
+                    df_rew = df_log[["episode", "mean_reward"]].set_index("episode")
+                    st.caption("Mean episode reward over training")
+                    st.line_chart(df_rew)
+
+                    # Entropy chart
+                    if "policy_entropy" in df_log.columns:
+                        df_ent = df_log[["episode", "policy_entropy"]].set_index("episode")
+                        st.caption("Policy entropy (should decrease as policy converges)")
+                        st.line_chart(df_ent)
+
+                    # Raw table
+                    with st.expander("📄 Raw training_log.csv"):
+                        st.dataframe(df_log, use_container_width=True)
+            except Exception as exc:
+                st.error(f"Could not read training_log.csv: {exc}")
+        else:
+            st.info(
+                "No `training_log.csv` found yet.\n\n"
+                "Run `python3 agent.py --cycles 1` to train the NEMESIS model and generate this file."
+            )
+
 
     # --- Auto-play loop ---
     if st.session_state.running:
