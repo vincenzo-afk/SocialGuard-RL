@@ -13,9 +13,7 @@ tags:
   - social-media
   - gymnasium
 license: mit
-sdk: docker
 app_port: 7860
-pinned: false
 ---
 
 # SocialGuard-RL 🛡️
@@ -544,22 +542,29 @@ Prints a side-by-side comparison of the trained model vs. the rule-based baselin
 
 ---
 
-## Dashboard
+## Dashboard (9 Tabs)
 
-The Streamlit dashboard provides a live visual interface for running and inspecting episodes.
+The Streamlit dashboard provides a live visual interface for interpreting the neural policy.
+
+**Powered by Llama-4-Maverick-17B-128E — 402B parameter MoE model for semantic content analysis**
 
 ```bash
 streamlit run dashboard/app.py
 ```
 
-Features:
-- Load any trained `.zip` model or use the rule-based baseline.
-- Step forward manually or run continuously at up to 10 steps/second.
-- Live pyvis network graph with node coloring: green (real), red (bot), yellow (under review), gray (removed).
-- Metrics cards: total reward, bots removed (TP), innocents removed (FP), current timestep.
-- Decision log table: timestep, action, ground truth, reward.
-- Cumulative reward chart.
-- Optional token-protected access via `SOCIALGUARD_DASHBOARD_TOKEN` env var.
+![Learning Curve](learning_curve.png)
+
+| Tab | What you see |
+|-----|-------------|
+| **🚨 Flagged Accounts** | Live stream of flagged accounts — ID, reason, bot vs human verdict, and reward. |
+| **🤖 NEMESIS Live** | Neural policy inference. Per-step decision table with color-coded TP/FP. Action probability bars per step. Confidence chart. Live Llama-4-Maverick semantic reasoning panel. |
+| **📉 Learning Curve** | Charts plotted from `training_log.csv` (TP rate ↑, FP rate ↓, entropy, mean reward). |
+| **🏋️ Train Model** | Launch `agent.py` training directly from the UI. Live log output. Checkpoint browser. |
+| **📋 Decision Log** | Historical table of past actions and their corresponding rewards. |
+| **🕸️ Network Graph** | Pyvis interactive graph for CIB tasks; feature distribution charts for Spam/Misinfo. |
+| **📈 Cumulative Reward**| Cumulative reward charts (per-step and per-episode). |
+| **🔍 Reward Breakdown** | Disaggregation of the scalar reward into: correctness, fps, collateral, speed, escalation. |
+| **🧠 Model Architecture**| Full NemesisPolicy network architecture, feature set, action space, and HF integration status. |
 
 > The dashboard (`streamlit run`) and the OpenEnv server (`uvicorn server:app`) are separate processes. Run both in parallel for full functionality.
 
