@@ -284,6 +284,21 @@ class SocialGuardEnv(gym.Env):
         _collateral_threshold = int(self._task_cfg.get("collateral_damage_threshold", 999))
         task_success = bool(terminated and not truncated and collateral_count < _collateral_threshold)
 
+        # Determine flagged reason
+        task_name = self._task.task_name if hasattr(self._task, "task_name") else str(self._task_cfg.get("name", "unknown"))
+        reason = "Normal Activity"
+        if gt == 1:
+            if "spam" in task_name:
+                reason = "Spam/Phishing Activity"
+            elif "misinfo" in task_name:
+                reason = "Misinformation Spread"
+            elif "cib" in task_name:
+                reason = "Coordinated Inauthentic Behavior"
+            else:
+                reason = "Policy Violation"
+        elif gt == 0:
+            reason = "False Positive (Organic User)"
+
         # Keep canonical step-level keys authoritative for the action just taken.
         # task_info may reflect post-step task state and should not overwrite these.
         info: dict[str, Any] = {
@@ -292,6 +307,8 @@ class SocialGuardEnv(gym.Env):
             "ground_truth": gt,
             "action_taken": action,
             "action_name": ACTION_NAMES.get(action, "unknown"),
+            "flagged_account": pre_entity_id if pre_entity_id is not None else "Unknown",
+            "flagged_reason": reason if action in (1, 2, 3, 4) else "N/A",
             "reward_breakdown": breakdown.to_dict(),
             "collateral_count": collateral_count,
             "episode_step": self._episode_step,
