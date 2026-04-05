@@ -6,7 +6,7 @@ gymnasium>=0.29.0,<1.0
 numpy>=1.24.0,<2.0
 
 # Social graph
-networkx>=3.0,<4.0
+networkx>=2.8,<3.0
 
 # Graph embeddings (Task 3)
 node2vec>=0.4.6,<0.5
