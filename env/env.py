@@ -491,3 +491,128 @@ class SocialGuardEnv(gym.Env):
             float(reward),
             float(self._cumulative_reward),
         )
+
+class MastodonEnv(SocialGuardEnv):
+    """Real-time Mastodon environment pulling public timeline."""
+    
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        super().reset(seed=seed)
+
+        self._timestep = 0
+        self._cumulative_reward = 0.0
+        self._decision_history = []
+        self._episode_step = 0
+        self._is_done = False
+        
+        # We don't use _task for Mastodon
+        self._task = None
+
+        from mastodon import Mastodon
+        import os
+        
+        token = os.environ.get("MASTODON_ACCESS_TOKEN", "").strip()
+        self._mastodon_queue = []
+        if token:
+            try:
+                client = Mastodon(access_token=token, api_base_url="https://mastodon.social")
+                self._mastodon_queue = client.timeline_public(limit=100)
+            except Exception as e:
+                logger.warning("Mastodon fetch failed: %s", e)
+                
+        obs, info = self._get_next_obs()
+        return obs, info
+
+    def _get_next_obs(self) -> tuple[np.ndarray, dict[str, Any]]:
+        from env.spaces import OBS_DIM
+        import os
+        obs = np.zeros(OBS_DIM, dtype=np.float32)
+        info = {
+            "entity_id": "unknown",
+            "content_snippet": "",
+            "ground_truth": -1,
+            "reward_breakdown": {"total": 0.0},
+            "episode_step": self._episode_step,
+            "task_success": False,
+            "mastodon_post": None
+        }
+        
+        if not getattr(self, "_mastodon_queue", []):
+            self._is_done = True
+            return obs, info
+            
+        post = self._mastodon_queue.pop(0)
+        account = post.get("account", {})
+        
+        info["entity_id"] = account.get("username", "unknown")
+        
+        import re
+        raw_content = post.get("content", "")
+        # Basic HTML strip
+        content = re.sub('<[^<]+>', '', raw_content)
+        info["content_snippet"] = content
+        info["mastodon_post"] = post
+        
+        import datetime
+        created_at = account.get("created_at")
+        if created_at:
+            if isinstance(created_at, str):
+                from dateutil import parser
+                created_at = parser.parse(created_at)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            if created_at.tzinfo is None:
+                now = now.replace(tzinfo=None)
+            try:
+                age_days = max(1, (now - created_at).days)
+            except Exception:
+                age_days = 1
+        else:
+            age_days = 1
+            
+        # Exactly mapping to tabular features in model.py
+        # 0: age, 1: posts_per_hour, 2: follower_ratio (or flag count), 3: variance (length), 4: content_rep
+        obs[0] = float(min(age_days / 3650.0, 1.0))
+        freq = account.get("statuses_count", 0) / (age_days * 24.0)
+        obs[1] = float(min(freq / 10.0, 1.0))
+        obs[2] = 0.0 # prior flag count proxy
+        obs[3] = float(min(len(content) / 1000.0, 1.0)) # length
+        urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', raw_content)
+        obs[4] = float(min(len(urls) / 5.0, 1.0)) # link repetition
+        
+        return obs, info
+
+    def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        self._timestep += 1
+        self._episode_step += 1
+        
+        # Real-time reward computation will happen in agent.py using Llama for ground truth
+        reward = 0.0
+        
+        # Info from the POST we just took action on
+        # Wait, the observation returned by step is the NEXT post.
+        # But we need to return info for the CURRENT step.
+        from env.spaces import ACTION_NAMES
+        
+        # Get next post obs
+        obs, next_info = self._get_next_obs()
+        
+        terminated = self._is_done
+        truncated = False
+        
+        info = {
+            **next_info,
+            "action_taken": action,
+            "action_name": ACTION_NAMES.get(action, "unknown"),
+            "ground_truth": -1,
+            "reward_breakdown": {"total": reward},
+            "task_name": "Mastodon Live",
+            "cumulative_reward": self._cumulative_reward,
+            "task_success": True
+        }
+        
+        return obs, reward, terminated, truncated, info
+
