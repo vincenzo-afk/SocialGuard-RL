@@ -14,3 +14,4 @@ node_modules/
 bugs.txt.venv/
 venv/
 *.dmg
+.venv/

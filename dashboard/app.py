@@ -467,9 +467,12 @@ def main() -> None:
         "📈 Cumulative Reward",
         "🔍 Reward Breakdown",
         "🧠 Model Architecture",
+        "🌍 Mastodon Live",
+        "⚖️ Mastodon Statistics",
     ])
     (tab_flagged, tab_nemesis, tab_learning, tab_train,
-     tab_log, tab_graph, tab_rewards, tab_breakdown, tab_arch) = tabs
+     tab_log, tab_graph, tab_rewards, tab_breakdown, tab_arch,
+     tab_mastodon, tab_mastodon_stats) = tabs
 
     # ═══════════════════════════════════════════════════════════════════
     # 🚨 TAB 1 — Flagged Accounts
@@ -539,11 +542,14 @@ def main() -> None:
                 with st.spinner("Running NEMESIS inference…"):
                     try:
                         from agent import run_inference_episode
+                        recs_list = st.session_state.get("nemesis_records", [])
+                        recs_list.clear()
                         recs = run_inference_episode(
                             config_path=inf_config,
                             model_path=NEMESIS_MODEL_PATH,
                             n_steps=n_steps,
                             deterministic=deterministic,
+                            records_list=recs_list
                         )
                         st.session_state["nemesis_records"] = recs
                     except Exception as exc:
@@ -917,6 +923,70 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
             {"Dim": 4, "Feature": "content_repetition",     "Range": "[0, 1]"},
         ])
         st.dataframe(feat_df, use_container_width=True)
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 🌍 TAB 10 — Mastodon Live
+    # ═══════════════════════════════════════════════════════════════════
+    with tab_mastodon:
+        st.subheader("🌍 Mastodon Live (Real-time)")
+        st.write("Displays the last 50 Mastodon posts analyzed by the agent.")
+        try:
+            from streamlit_autorefresh import st_autorefresh
+            if os.environ.get("MASTODON_ACCESS_TOKEN"):
+                st_autorefresh(interval=5000, key="mastodon_refresh")
+        except ImportError:
+            pass
+
+        mrecords = st.session_state.get("nemesis_records", [])
+        if mrecords:
+            recent = list(reversed(mrecords[-50:]))
+            df_m = pd.DataFrame([{
+                "Account ID": r["account_id"],
+                "Content Snippet": r["content_snippet"],
+                "Prediction": r["prediction"],
+                "Ground Truth": r["ground_truth"],
+                "Reward": r["reward"],
+                "Confidence": f"{r['confidence']:.3f}",
+                "Flagged Reason": r["flagged_reason"],
+            } for r in recent])
+            
+            def _row_color(row):
+                is_act = row["Prediction"] != "No Action"
+                is_bot = row["Ground Truth"] == "Bot"
+                if is_act and is_bot:   return ["background-color:#1b4332"] * len(row)
+                if is_act and not is_bot: return ["background-color:#4a1122"] * len(row)
+                return [""] * len(row)
+                
+            st.dataframe(df_m.style.apply(_row_color, axis=1), use_container_width=True)
+        else:
+            st.info("No Mastodon posts analyzed yet. Ensure MASTODON_ACCESS_TOKEN is set and run NEMESIS inference.")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # ⚖️ TAB 11 — Mastodon Statistics
+    # ═══════════════════════════════════════════════════════════════════
+    with tab_mastodon_stats:
+        st.subheader("⚖️ Mastodon Statistics")
+        mrecords = st.session_state.get("nemesis_records", [])
+        if mrecords:
+            cat_counts = {}
+            total = len(mrecords)
+            for r in mrecords:
+                cats = r.get("categories", [])
+                for c in cats:
+                    cat_counts[c] = cat_counts.get(c, 0) + 1
+            
+            if cat_counts:
+                st.markdown("### Toxicity Distribution Metrics")
+                df_c = pd.DataFrame([{
+                    "Category": k, 
+                    "Percentage": f"{(v/total)*100:.1f}%",
+                    "Count": v
+                } for k, v in cat_counts.items()])
+                st.dataframe(df_c, use_container_width=True)
+            else:
+                st.info("No policy violations detected yet in the current session.")
+        else:
+            st.info("No Mastodon posts analyzed yet.")
 
     # ── Auto-play loop ───────────────────────────────────────────────
     if st.session_state.running:

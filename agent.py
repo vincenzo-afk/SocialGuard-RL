@@ -383,74 +383,147 @@ def run_inference_episode(
     deterministic: bool = True,
     use_reddit: bool = True,
     fake_latency: bool = True,
+    records_list: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Run a live inference episode and return per-step details.
-
-    Args:
-        config_path: Task YAML config path.
-        model_path: Path to a saved PPO model .zip.
-        n_steps: Maximum steps to run.
-        deterministic: Use argmax rather than sampling.
-        use_reddit: Whether to pull real Reddit posts if credentials present.
-        fake_latency: Whether to add a small sleep to simulate processing.
-
-    Returns:
-        List of dicts with step-level info suitable for the dashboard.
+    When MASTODON_ACCESS_TOKEN is set, it streams asynchronously.
     """
-    from stable_baselines3 import PPO
-
-    env = SocialGuardEnv(config_path)
-    model = PPO.load(model_path, env=env, device="auto")
-    obs, _ = env.reset()
-
-    reddit_stream = _get_reddit_posts(limit=n_steps) if use_reddit else []
-    
-    records: List[Dict[str, Any]] = []
-    for step in range(n_steps):
-        if fake_latency:
-            time.sleep(np.random.uniform(0.3, 0.7))
-
-        action, confidence, probs = predict_action(model, obs, deterministic=deterministic)
-        obs, reward, terminated, truncated, info = env.step(action)
-
-        gt = int(info.get("ground_truth", -1))
+    if records_list is None:
+        records_list = []
         
-        # Override with real Reddit content if available
-        if reddit_stream and step < len(reddit_stream):
-            rp = reddit_stream[step]
-            account_id = f"r/{rp['author']}"
-            snippet = rp['content']
-            info["flagged_account"] = account_id
-        else:
-            account_id = info.get("entity_id", step)
-            snippet = (
-                f"[obs] age={obs[0]:.2f} posts/hr={obs[1]:.2f} "
-                f"ratio={obs[2]:.2f} rep={obs[4]:.2f}"
-            )
-            account_id = account_id if account_id is not None else f"acc_{step}"
+    has_mastodon = bool(os.environ.get("MASTODON_ACCESS_TOKEN"))
 
-        action_label = ACTION_LABELS.get(action, str(action))
-        gt_label = "Bot" if gt == 1 else ("Human" if gt == 0 else "Unknown")
-        records.append(
-            {
+    def worker():
+        from stable_baselines3 import PPO
+        if has_mastodon:
+            from env.env import MastodonEnv
+            from model import analyze_content_with_llama
+            env = MastodonEnv(config_path)
+            # Try to build PPO but fallback if model not there yet, although usually dashboard only calls this when model exists.
+        else:
+            env = SocialGuardEnv(config_path)
+            
+        try:
+            model = PPO.load(model_path, env=env, device="auto")
+        except Exception as e:
+            logger.error("Failed to load model %s: %s", model_path, e)
+            return
+
+        obs, _ = env.reset()
+
+        reddit_stream = _get_reddit_posts(limit=n_steps) if (use_reddit and not has_mastodon) else []
+        
+        step = 0
+        tp_count = 0
+        fp_count = 0
+        tot_reward = 0.0
+        
+        while True:
+            if not has_mastodon and step >= n_steps:
+                break
+                
+            if fake_latency:
+                time.sleep(np.random.uniform(0.3, 0.7))
+
+            action, confidence, probs = predict_action(model, obs, deterministic=deterministic)
+            next_obs, reward, terminated, truncated, info = env.step(action)
+
+            gt = int(info.get("ground_truth", -1))
+            account_id = info.get("entity_id", f"acc_{step}")
+            snippet = info.get("content_snippet", "")
+            reason = info.get("flagged_reason", "N/A")
+            
+            if has_mastodon:
+                # Use Llama as ground truth
+                analysis = analyze_content_with_llama(snippet)
+                risk = analysis.get("risk_score", 0.0)
+                gt = 1 if risk > 0.51 else 0
+                
+                # Compute reward
+                if action == 3: # Remove
+                    reward = REWARD_TRUE_POSITIVE if gt == 1 else REWARD_FALSE_POSITIVE
+                elif gt == 1:
+                    reward = REWARD_MISSED_DETECTION
+                else:
+                    reward = REWARD_TRUE_NEGATIVE
+                    
+                cat_str = ", ".join(analysis.get("categories", []))
+                if not cat_str: cat_str = "Policy Violation"
+                reason = cat_str if action == 3 else "Normal Activity"
+                
+                if gt == 1 and action == 3: tp_count += 1
+                elif gt == 0 and action == 3: fp_count += 1
+                tot_reward += reward
+                
+            elif reddit_stream and step < len(reddit_stream):
+                rp = reddit_stream[step]
+                account_id = f"r/{rp['author']}"
+                snippet = rp['content']
+                info["flagged_account"] = account_id
+            else:
+                account_id = info.get("entity_id", step)
+                snippet = (
+                    f"[obs] age={obs[0]:.2f} posts/hr={obs[1]:.2f} "
+                    f"ratio={obs[2]:.2f} rep={obs[4]:.2f}"
+                )
+                account_id = account_id if account_id is not None else f"acc_{step}"
+
+            action_label = ACTION_LABELS.get(action, str(action))
+            gt_label = "Bot" if gt == 1 else ("Human" if gt == 0 else "Unknown")
+            
+            # Mastodon logic: prepend vs append!
+            # The dashboard expects sequential if standard, so we append.
+            records_list.append({
                 "step": step + 1,
                 "account_id": account_id,
-                "content_snippet": snippet,
+                "content_snippet": snippet[:100] + "..." if len(snippet)>100 else snippet,
                 "prediction": action_label,
                 "action_id": action,
                 "ground_truth": gt_label,
                 "reward": round(float(reward), 4),
                 "confidence": round(confidence, 4),
-                "flagged_account": info.get("flagged_account", account_id),
-                "flagged_reason": info.get("flagged_reason", "N/A"),
+                "flagged_account": account_id,
+                "flagged_reason": reason,
                 "probs": {ACTION_LABELS[i]: round(float(probs[i]), 4) for i in range(N_ACTIONS)},
-            }
-        )
-        if terminated or truncated:
-            break
+                # Keep extra for statistics 
+                "risk_score": analysis.get("risk_score", 0.0) if has_mastodon else 0.0,
+                "categories": analysis.get("categories", []) if has_mastodon else []
+            })
+            
+            # Limit length to keep dashboard responsive
+            if len(records_list) > 200:
+                records_list.pop(0)
 
-    env.close()
-    return records
+            if has_mastodon and (step + 1) % 10 == 0:
+                # Update training_log.csv with the real-time learning curve
+                tp_rate = tp_count / max(1, tp_count + fp_count)
+                fp_rate = fp_count / max(1, (step + 1) - tp_count - fp_count)
+                _append_training_log(
+                    TRAINING_LOG_PATH, cycle=999, episode=step, mean_reward=tot_reward/max(1, step),
+                    tp_rate=tp_rate, fp_rate=fp_rate, entropy=0.0
+                )
+
+            if terminated or truncated:
+                if has_mastodon:
+                    obs, _ = env.reset()
+                else:
+                    break
+            else:
+                obs = next_obs
+                
+            step += 1
+
+        env.close()
+
+    if has_mastodon:
+        import threading
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        return records_list
+    else:
+        worker()
+        return records_list
+
 
 
 # ---------------------------------------------------------------------------
