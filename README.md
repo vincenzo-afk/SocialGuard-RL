@@ -215,7 +215,7 @@ NEMESIS-RL is purpose-built to be the simulation layer that trains the next gene
 - `α · correctness` — reward correct threat detection
 - `−β · fp_cost` — penalize false positives proportional to user legitimacy (a verified account costs more to wrongly remove than a new account)
 - `−γ · collateral_damage` — separately tunable penalty for removing legitimate users
-- `+δ · speed_bonus` — early intervention is rewarded; this is what prevents misinformation from reaching a million users before action is taken
+- `+δ · speed_bonus` — early intervention is rewarded for spread-timing tasks; this is what prevents misinformation from reaching a million users before action is taken
 - `−ε · escalation_penalty` — agents learn to reserve human review for genuinely uncertain cases
 
 **Scales to Meta's Graph Topology.** Task 3 uses the planted partition model (`networkx.stochastic_block_model`) to embed a hidden bot cluster inside a large social graph — a direct analog to the coordinated inauthentic behavior networks that Meta's Trust & Safety team dismantles. Node embeddings are computed via spectral decomposition (< 5 seconds on CPU) or node2vec (richer, slower), and the agent must reason over 64-dimensional graph structure features to find the cluster without the collateral damage of mass removals.

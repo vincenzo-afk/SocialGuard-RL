@@ -225,6 +225,19 @@ class TestSpeedBonus:
         )
         assert bd_early.total > bd_late.total
 
+    def test_speed_bonus_disabled_for_task_cib(self, engine: RewardEngine) -> None:
+        """Task 3 should not receive timing bonus from the generic reward engine."""
+        bd = engine.compute(
+            action=ACTION_REMOVE,
+            is_bot=True,
+            legitimacy_score=0.1,
+            current_hop=0,
+            allowed_actions=ALL_ACTIONS,
+            escalation_count=0,
+            task_name="task_cib",
+        )
+        assert bd.speed_bonus == pytest.approx(0.0)
+
 
 # ---------------------------------------------------------------------------
 # 4. Escalation overuse

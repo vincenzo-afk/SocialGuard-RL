@@ -513,7 +513,7 @@ def main() -> None:
     # ═══════════════════════════════════════════════════════════════════
     with tab_flagged:
         st.subheader("🚨 Live Flagged Accounts Stream")
-        st.caption("Every non-allow action taken by the agent — account ID, reason, verdict.")
+        st.caption("Every non-allow action taken by the agent. In Task 2, `Restrict` reduces reach and the episode continues; `Remove` is the terminal takedown action.")
 
         stream = list(reversed(st.session_state.flagged_stream[-50:]))
         if stream:
@@ -936,7 +936,7 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
             {"ID": k, "Label": v, "Reward (TP)": "+1.0" if k==3 else "varies",
              "Description": {
                  0:"Allow — no action taken",1:"Warn — flag account",
-                 2:"Restrict — reduce reach",3:"Remove — suspend account",
+                 2:"Restrict — reduce reach and continue monitoring",3:"Remove — suspend/takedown immediately",
                  4:"Escalate — human review required"
              }[k]}
             for k, v in ACTION_EMOJI.items()
