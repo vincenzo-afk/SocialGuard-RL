@@ -185,9 +185,9 @@ python training/train_ppo.py --config configs/task3.yaml --run_name ppo_cib --cu
 
 | Task | Precision | Recall | F1 | Mean Reward | Normalized Score |
 |------|-----------|--------|-----|-------------|-----------------|
-| `task_spam` | 0.74 | 0.68 | 0.71 | 38.4 | **0.71** |
-| `task_misinfo` | 0.61 | 0.55 | 0.58 | 22.1 | **0.56** |
-| `task_cib` | 0.52 | 0.48 | 0.50 | 15.7 | **0.43** |
+| `task_spam` | 1.00 | 0.95 | 0.98 | 75.1 | **0.93** |
+| `task_misinfo` | 1.00 | 1.00 | 1.00 | 0.8 | **1.00** |
+| `task_cib` | 0.00 | 0.00 | 0.00 | 0.0 | **0.00** |
 
 ### NEMESIS PPO Agent Training Progress (from `training_log.csv`)
 

@@ -127,12 +127,20 @@ class BaselineAgent:
         """Infer active task from sparse padding patterns."""
         if self._task_name:
             return self._task_name
-        if obs.shape[0] >= OBS_DIM and not np.any(np.abs(obs) > 1e-8):
-            return "task_spam"
-        if np.any(np.abs(obs[8:]) > 1e-8):
-            return "task_cib"
+        
+        # task_spam uses indices 0-7, which includes 6 and 7.
         if np.any(np.abs(obs[6:8]) > 1e-8):
             return "task_spam"
+            
+        # task_cib uses observation dimensions [8:] heavily
+        if np.any(np.abs(obs[8:]) > 1e-8):
+            return "task_cib"
+            
+        # If neither of the above, it's task_misinfo 
+        # (or completely empty, which defaults to task_spam)
+        if obs.shape[0] >= 8 and not np.any(np.abs(obs) > 1e-8):
+            return "task_spam"
+
         return "task_misinfo"
 
     def set_task_name(self, task_name: str) -> None:
