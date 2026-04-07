@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 import numpy as np
 import uvicorn
+import yaml
 
 from env.env import SocialGuardEnv
 from env.models import ObservationModel, ResetRequest, StepRequest
@@ -38,6 +39,10 @@ _locks: dict[str, threading.Lock] = {}
 _grade_locks: dict[str, threading.Lock] = {}
 _registry_lock = threading.Lock()
 _recent_calls: deque[dict[str, Any]] = deque(maxlen=25)
+_server_started_at = time.time()
+_total_steps_served = 0
+_task_reset_counts: dict[str, int] = {}
+_task_step_counts: dict[str, int] = {}
 
 TASK_CONFIG_MAP = {
     "task_spam": "configs/task1.yaml",
@@ -172,7 +177,12 @@ async def require_api_token(request: Request, call_next):
 
 @app.get("/healthz", tags=["meta"])
 def healthz():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "version": app.version,
+        "uptime_seconds": int(max(0, time.time() - _server_started_at)),
+        "total_steps_served": int(_total_steps_served),
+    }
 
 
 @app.get("/", tags=["meta"])
@@ -189,6 +199,7 @@ def reset_env(req: ResetRequest):
     with lock:
         try:
             obs, info = env.reset(seed=req.seed)
+            _task_reset_counts[req.task] = int(_task_reset_counts.get(req.task, 0)) + 1
             return ObservationModel(
                 observation=obs.tolist(),
                 reward=0.0,
@@ -204,12 +215,15 @@ def reset_env(req: ResetRequest):
 
 @app.post("/step", response_model=ObservationModel, tags=["env"])
 def step_env(req: StepRequest):
+    global _total_steps_served
     env, lock = get_env_and_lock(req.task)
     with lock:
         if getattr(env, "_task", None) is None:
             raise HTTPException(status_code=400, detail="Call /reset before /step.")
         try:
             obs, reward, terminated, truncated, info = env.step(req.action)
+            _total_steps_served += 1
+            _task_step_counts[req.task] = int(_task_step_counts.get(req.task, 0)) + 1
             return ObservationModel(
                 observation=obs.tolist(),
                 reward=float(reward),
@@ -230,6 +244,38 @@ def get_state(task: str):
         if env._task is None:
             raise HTTPException(status_code=400, detail="Environment has not been reset yet.")
         return _deep_cast_numpy(env.state())
+
+
+@app.get("/config/{task_name}", tags=["meta"])
+def get_task_config(task_name: str):
+    config_path = TASK_CONFIG_MAP.get(task_name)
+    if not config_path:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
+        )
+    if not os.path.exists(config_path):
+        raise HTTPException(status_code=404, detail=f"Config not found for task '{task_name}'.")
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load config: {exc}")
+
+    task_cfg = data.get("task", {}) if isinstance(data, dict) else {}
+    env_cfg = data.get("env", {}) if isinstance(data, dict) else {}
+    reward_cfg = data.get("reward", {}) if isinstance(data, dict) else {}
+
+    return {
+        "task": task_name,
+        "bot_ratio": task_cfg.get("bot_ratio"),
+        "noise_level": task_cfg.get("noise_level"),
+        "max_steps": env_cfg.get("max_steps"),
+        "collateral_threshold": task_cfg.get("collateral_damage_threshold", 0),
+        "reward": reward_cfg,
+        "raw": data,
+    }
 
 
 @app.get("/grade/all", tags=["grading"])
@@ -326,9 +372,15 @@ def metrics():
     lines = []
     for task, env in _envs.items():
         lines.append(f'nemesis_env_timestep{{task="{task}"}} {getattr(env, "_timestep", 0)}')
+        lines.append(f'nemesis_env_episode_step{{task="{task}"}} {getattr(env, "_episode_step", 0)}')
         lines.append(
             f'nemesis_env_cumulative_reward{{task="{task}"}} {float(getattr(env, "_cumulative_reward", 0.0)):.4f}'
         )
+    for task in TASK_CONFIG_MAP:
+        lines.append(f'nemesis_env_episode_count{{task="{task}"}} {int(_task_reset_counts.get(task, 0))}')
+        lines.append(f'nemesis_env_step_count{{task="{task}"}} {int(_task_step_counts.get(task, 0))}')
+    lines.append(f"nemesis_server_total_steps_served {int(_total_steps_served)}")
+    lines.append(f"nemesis_server_uptime_seconds {int(max(0, time.time() - _server_started_at))}")
     return "\n".join(lines) or "# no envs initialized"
 
 
