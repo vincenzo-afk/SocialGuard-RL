@@ -167,6 +167,7 @@ def init_session_state() -> None:
         "log": [], "decision_log": {}, "tp": 0, "fp": 0, "last_breakdown": {},
         "nemesis_records": [], "flagged_stream": [],
         "train_running": False, "train_log_lines": [],
+        "last_autoplay_tick": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -174,14 +175,25 @@ def init_session_state() -> None:
 
 
 def reset_episode_state() -> None:
-    for k in ("step","terminated","truncated","ep_reward","cumulative_rewards",
-              "log","decision_log","tp","fp","last_breakdown","running"):
+    for k in (
+        "step", "terminated", "truncated", "ep_reward", "cumulative_rewards",
+        "episode_rewards", "log", "decision_log", "tp", "fp",
+        "last_breakdown", "running", "flagged_stream", "last_autoplay_tick",
+    ):
         st.session_state[k] = 0 if k in ("step","tp","fp") else (
             0.0 if k in ("ep_reward",) else ([] if k in ("cumulative_rewards","log") else (
-            {} if k in ("decision_log","last_breakdown") else False))
+            {} if k in ("decision_log","last_breakdown") else (
+            [] if k in ("episode_rewards", "flagged_stream") else None if k == "last_autoplay_tick" else False)))
         )
     st.session_state.pop("graph_base_html", None)
     st.session_state.pop("graph_base_sig",  None)
+
+
+def _format_delta(series: pd.Series) -> str:
+    if series.empty:
+        return "+0.000"
+    delta_val = series.diff().iloc[-1]
+    return f"{float(delta_val):+.3f}" if pd.notna(delta_val) else "+0.000"
 
 # ---------------------------------------------------------------------------
 # Step logic
@@ -394,7 +406,7 @@ def main() -> None:
 
     try:
         if agent_type == "Rule-based Baseline":
-            agent = BaselineAgent()
+            agent = BaselineAgent(task_name=str(env._task_cfg.get("name", "task_spam")))
         else:
             if not model_file:
                 st.error("Please enter a model path.")
@@ -402,7 +414,12 @@ def main() -> None:
             from evaluate import load_model
             agent = load_model(model_file)
     except Exception as e:
-        st.error(f"❌ Failed to load agent: {e}")
+        if agent_type == "Trained Model":
+            st.error(
+                "❌ Failed to load trained model. Use a `.zip` under `models/` and ensure runtime dependencies are installed."
+            )
+        else:
+            st.error(f"❌ Failed to load agent: {e}")
         return
 
     # ── Header ───────────────────────────────────────────────────────────
@@ -449,10 +466,14 @@ def main() -> None:
             step_agent(env, agent); st.rerun()
     with c2:
         if st.button("▶️ Play", use_container_width=True, disabled=st.session_state.running):
-            st.session_state.running = True; st.rerun()
+            st.session_state.running = True
+            st.session_state.last_autoplay_tick = None
+            st.rerun()
     with c3:
         if st.button("⏸️ Pause", use_container_width=True, disabled=not st.session_state.running):
-            st.session_state.running = False; st.rerun()
+            st.session_state.running = False
+            st.session_state.last_autoplay_tick = None
+            st.rerun()
 
     st.divider()
 
@@ -673,13 +694,13 @@ def main() -> None:
                     latest = df_log.iloc[-1]
                     lc1, lc2, lc3, lc4 = st.columns(4)
                     lc1.metric("TP Rate",    f"{float(latest.get('tp_rate',0)):.3f}",
-                               delta=f"{float(df_log['tp_rate'].diff().iloc[-1] or 0):+.3f}")
+                               delta=_format_delta(df_log["tp_rate"]))
                     lc2.metric("FP Rate",    f"{float(latest.get('fp_rate',0)):.3f}",
-                               delta=f"{float(df_log['fp_rate'].diff().iloc[-1] or 0):+.3f}", delta_color="inverse")
+                               delta=_format_delta(df_log["fp_rate"]), delta_color="inverse")
                     lc3.metric("Mean Reward",f"{float(latest.get('mean_reward',0)):.3f}",
-                               delta=f"{float(df_log['mean_reward'].diff().iloc[-1] or 0):+.3f}")
+                               delta=_format_delta(df_log["mean_reward"]))
                     lc4.metric("Entropy",    f"{float(latest.get('policy_entropy',0)):.3f}",
-                               delta=f"{float(df_log['policy_entropy'].diff().iloc[-1] or 0):+.3f}", delta_color="inverse")
+                               delta=_format_delta(df_log["policy_entropy"]), delta_color="inverse")
 
                     st.markdown('<p class="section-title">TP Rate vs FP Rate</p>', unsafe_allow_html=True)
                     st.line_chart(df_log[["episode","tp_rate","fp_rate"]].set_index("episode"))
@@ -992,6 +1013,7 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
     if st.session_state.running:
         if st.session_state.terminated or st.session_state.truncated:
             st.session_state.running = False
+            st.session_state.last_autoplay_tick = None
             st.session_state.episode_rewards.append(st.session_state.ep_reward)
             st.sidebar.success(f"Episode finished · Reward: {st.session_state.ep_reward:.2f}")
             with st.expander("📊 Episode Summary", expanded=True):
@@ -1005,9 +1027,20 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
                     prec = st.session_state.tp / tot
                     st.progress(prec, text=f"Precision: {prec:.1%}")
         else:
-            step_agent(env, agent)
-            time.sleep(max(0.0, 1.0 / max(float(auto_speed), 1.0)))
-            st.rerun()
+            try:
+                from streamlit_autorefresh import st_autorefresh
+            except ImportError:
+                st.session_state.running = False
+                st.warning(
+                    "Auto-play requires `streamlit-autorefresh` for non-blocking updates."
+                )
+            else:
+                interval_ms = int(max(50.0, 1000.0 / max(float(auto_speed), 1.0)))
+                current_tick = st_autorefresh(interval=interval_ms, key="episode_autoplay")
+                if st.session_state.get("last_autoplay_tick") != current_tick:
+                    st.session_state.last_autoplay_tick = current_tick
+                    step_agent(env, agent)
+                    st.rerun()
 
 
 if __name__ == "__main__":

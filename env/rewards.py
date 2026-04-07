@@ -39,7 +39,7 @@ class RewardBreakdown:
 
     Attributes:
         correctness: Positive signal for correctly identifying a threat.
-        fp_cost: Penalty for false positive (removing a real user).
+        fp_cost: Penalty for softer false-positive actions on a real user.
         collateral_damage: Penalty for removing legitimate accounts.
         speed_bonus: Bonus for acting early in the spread/detection timeline.
         escalation_penalty: Penalty for overusing the escalate action.
@@ -188,8 +188,8 @@ class RewardEngine:
     ) -> float:
         """Return false positive cost when a real user is incorrectly actioned.
 
-        Cost is proportional to the entity's legitimacy score so that removing
-        a highly legitimate user incurs a larger penalty.
+        Cost is proportional to the entity's legitimacy score. Hard removals are
+        handled by collateral_damage so they are not double-counted here.
 
         Args:
             action: Agent action.
@@ -201,11 +201,6 @@ class RewardEngine:
         """
         if is_bot:
             return 0.0
-        # Scale penalty by legitimacy — hurts more to remove a real, reputable user
-        if action == ACTION_REMOVE:
-            # Keep a minimum floor for hard removals only.
-            eff_legitimacy = max(legitimacy_score, 0.1)
-            return eff_legitimacy * 1.0
         if action in (ACTION_WARN, ACTION_REDUCE_REACH):
             return legitimacy_score * 0.3
         if action == ACTION_ESCALATE:

@@ -193,8 +193,8 @@ class TaskMisinfo(BaseTask):
                     self._collateral_count += 1
             self._acted = True
 
-        # Always advance spread one tick (even on allow — content keeps moving)
-        if not self._content_engine.is_spread_done():
+        # Keep propagation moving only while the episode remains active.
+        if not self._acted and not self._content_engine.is_spread_done():
             self._content_engine.tick()
 
         # Refresh legitimacy only while spread is active; keep last valid value

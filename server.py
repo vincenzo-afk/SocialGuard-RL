@@ -1,17 +1,20 @@
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import os
 import threading
 import time
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import numpy as np
 import uvicorn
 
 from env.env import SocialGuardEnv
 from env.models import ObservationModel, ResetRequest, StepRequest
+
+os.environ.setdefault("SOCIALGUARD_EMBEDDING_METHOD", "spectral")
 
 app = FastAPI(
     title="SocialGuard-RL OpenEnv Server",
@@ -25,8 +28,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 _envs: dict[str, SocialGuardEnv] = {}
@@ -54,25 +57,22 @@ def get_env_and_lock(task_name: str) -> tuple[SocialGuardEnv, threading.Lock]:
             status_code=400,
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
-    if task_name in _envs:
-        return _envs[task_name], _locks[task_name]
+    env = _envs.get(task_name)
+    if env is not None:
+        return env, _locks[task_name]
 
     with _registry_lock:
-        if task_name in _envs:
-            return _envs[task_name], _locks[task_name]
-        if task_name not in _locks:
-            _locks[task_name] = threading.Lock()
+        env = _envs.get(task_name)
+        if env is not None:
+            return env, _locks[task_name]
 
-    try:
-        new_env = SocialGuardEnv(TASK_CONFIG_MAP[task_name])
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Env init failed: {exc}")
-
-    with _registry_lock:
-        if task_name not in _envs:
-            _envs[task_name] = new_env
-
-    return _envs[task_name], _locks[task_name]
+        lock = _locks.setdefault(task_name, threading.Lock())
+        try:
+            env = SocialGuardEnv(TASK_CONFIG_MAP[task_name])
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Env init failed: {exc}")
+        _envs[task_name] = env
+        return env, lock
 
 
 def _deep_cast_numpy(obj: Any) -> Any:
@@ -91,6 +91,12 @@ def _score_formula(task_name: str) -> str:
     return SCORE_FORMULA_MAP.get(task_name, "F1")
 
 
+def _round_optional(value: Any, digits: int) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), digits)
+
+
 def _default_grade_result(task_name: str, requested_episodes: int, reason: str = "") -> dict[str, Any]:
     details: dict[str, Any] = {
         "precision": 0.0,
@@ -98,7 +104,7 @@ def _default_grade_result(task_name: str, requested_episodes: int, reason: str =
         "f1": 0.0,
         "mean_reward": 0.0,
         "mean_episode_length": 0.0,
-        "time_to_detection": 0.0,
+        "time_to_detection": None,
         "mean_collateral": 0.0,
         "n_episodes": 0,
         "requested_n_episodes": max(0, int(requested_episodes)),
@@ -143,6 +149,23 @@ async def track_recent_calls(request: Request, call_next):
         }
     )
     return response
+
+
+@app.middleware("http")
+async def require_api_token(request: Request, call_next):
+    token = os.environ.get("SOCIALGUARD_API_TOKEN", "").strip()
+    if not token:
+        return await call_next(request)
+
+    path = request.url.path
+    if path in {"/", "/healthz", "/openapi.json"} or path.startswith("/docs") or path.startswith("/redoc"):
+        return await call_next(request)
+
+    provided = request.headers.get("Authorization", "").strip()
+    if provided != f"Bearer {token}":
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+    return await call_next(request)
 
 
 @app.get("/healthz", tags=["meta"])
@@ -315,7 +338,7 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
         env = SocialGuardEnv(TASK_CONFIG_MAP[task_name])
         grader = Grader(env, n_episodes=n_episodes)
         try:
-            agent = BaselineAgent()
+            agent = BaselineAgent(task_name=task_name)
             timeout_s = float(max(10, min(600, 15 * max(1, int(n_episodes)))))
 
             def _run_eval() -> dict[str, Any]:
@@ -335,10 +358,6 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
             if not task_metrics:
                 raise HTTPException(status_code=500, detail=f"No metrics compiled for task {task_name}")
 
-            if task_name == "task_cib":
-                actual_threshold = float(getattr(env, "_task_cfg", {}).get("collateral_damage_threshold", 10.0))
-                task_metrics["collateral_threshold"] = actual_threshold
-
             score = grader.normalized_score(task_name, task_metrics)
 
             return {
@@ -351,7 +370,7 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
                     "f1": round(float(task_metrics.get("f1", 0.0)), 4),
                     "mean_reward": round(float(task_metrics.get("mean_reward", 0.0)), 4),
                     "mean_episode_length": round(float(task_metrics.get("mean_episode_length", 0.0)), 1),
-                    "time_to_detection": round(float(task_metrics.get("time_to_detection", 0.0)), 1),
+                    "time_to_detection": _round_optional(task_metrics.get("time_to_detection"), 1),
                     "mean_collateral": round(float(task_metrics.get("mean_collateral", 0.0)), 2),
                     "n_episodes": n_episodes,
                     "agent": "rule-based baseline",

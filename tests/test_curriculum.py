@@ -19,3 +19,20 @@ def test_apply_overrides_affects_next_reset() -> None:
     assert terminated or truncated
     assert steps == 3
     env.close()
+
+
+def test_apply_overrides_does_not_interrupt_active_episode() -> None:
+    env = SocialGuardEnv(config_path="configs/task1.yaml")
+    env.reset(seed=0)
+
+    _, _, terminated, truncated, info_before = env.step(ACTION_ALLOW)
+    assert not (terminated or truncated)
+    assert info_before["episode_step"] == 1
+
+    env.apply_overrides({"env": {"max_steps": 3}})
+    _, _, terminated, truncated, info_after = env.step(ACTION_ALLOW)
+
+    assert info_after["episode_step"] == 2
+    assert not info_after.get("already_done", False)
+    assert not (terminated and truncated)
+    env.close()

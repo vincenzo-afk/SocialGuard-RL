@@ -369,7 +369,7 @@ def _get_reddit_posts(limit: int = 20) -> List[Dict[str, str]]:
                 })
         return posts
     except Exception as exc:
-        logger.warning(f"Reddit API fetch failed: {exc}")
+        logger.warning("Reddit API fetch failed (credentials or network issue).")
         return []
 
 # ---------------------------------------------------------------------------

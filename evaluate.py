@@ -65,7 +65,8 @@ def main() -> None:
     
     # 1. Evaluate baseline
     logger.info("Evaluating Rule-Based Baseline...")
-    baseline = BaselineAgent()
+    task_name = str(env_baseline._task_cfg.get("name", "task_spam"))
+    baseline = BaselineAgent(task_name=task_name)
     grader = Grader(env_baseline, n_episodes=args.episodes)
     
     baseline_stats = grader.evaluate(baseline, agent_name="Baseline")

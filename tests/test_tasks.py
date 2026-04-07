@@ -277,8 +277,10 @@ class TestTaskMisinfo:
         """Taking ACTION_REDUCE_REACH must also terminate the episode."""
         from env.spaces import ACTION_REDUCE_REACH
         task.reset(seed=10)
+        before_hop = task.get_current_hop()
         task.step(ACTION_REDUCE_REACH)
         assert task.is_done()
+        assert task.get_current_hop() == before_hop
 
     def test_allow_does_not_terminate_immediately(self, task: TaskMisinfo) -> None:
         """Taking ACTION_ALLOW must not terminate the episode on the first step."""
@@ -435,3 +437,35 @@ class TestTaskCIB:
         assert task.is_done()
         assert task.get_cluster_state()["real_removed"] >= target_removals
 
+    def test_terminal_observation_is_zeroed(self, task: TaskCIB) -> None:
+        """TaskCIB should return zeros once the task is terminal."""
+        task.reset(seed=0)
+        task._current_node_idx = len(task._node_order)
+        obs = task.get_observation()
+        assert obs.shape == (OBS_DIM,)
+        assert np.count_nonzero(obs) == 0
+
+    def test_missing_embedding_uses_structural_fallback(self, task: TaskCIB) -> None:
+        """A missing embedding should not collapse the node observation to zeros."""
+        task.reset(seed=0)
+        node_id = task._node_order[task._current_node_idx]
+        task._embeddings.pop(node_id, None)
+        task._load_current_node()
+        assert np.any(np.abs(task._current_obs[:64]) > 1e-8)
+
+    def test_small_graph_spectral_fallback_is_stable(self) -> None:
+        """Tiny graphs should bypass eigsh safely and still yield finite obs."""
+        graph_cfg = {
+            "num_nodes": 2,
+            "bot_cluster_size": 1,
+            "real_intra_density": 0.08,
+            "intra_cluster_density": 0.4,
+            "inter_cluster_density": 0.05,
+            "embedding_dim": 64,
+            "embedding_method": "spectral",
+        }
+        task = TaskCIB(TASK3_CFG, ENV_CFG, graph_cfg)
+        task.reset(seed=0)
+        obs = task.get_observation()
+        assert obs.shape == (OBS_DIM,)
+        assert np.isfinite(obs).all()

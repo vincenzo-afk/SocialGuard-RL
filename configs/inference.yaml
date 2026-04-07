@@ -1,6 +1,7 @@
 graph:
   num_nodes: 100
   bot_cluster_size: 20
+  real_intra_density: 0.08
   intra_cluster_density: 0.35
   inter_cluster_density: 0.05
   embedding_dim: 64
