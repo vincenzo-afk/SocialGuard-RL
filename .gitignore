@@ -15,3 +15,5 @@ bugs.txt.venv/
 venv/
 *.dmg
 .venv/
+hf-space/.git
+hf-space/.git.bak
