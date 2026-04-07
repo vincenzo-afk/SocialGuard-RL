@@ -117,7 +117,14 @@ class Grader:
 
                 if gt == 1:
                     bots_seen.add(entity_id)
-                    if act == ACTION_REMOVE and entity_id not in bots_removed:
+                    # Bug #9 fix: also credit REDUCE_REACH as a detection for task_misinfo
+                    # to match baseline.py which uses REDUCE_REACH as a positive intervention.
+                    from env.spaces import ACTION_REDUCE_REACH
+                    counts_as_detection = (
+                        act == ACTION_REMOVE
+                        or (task_name == "task_misinfo" and act == ACTION_REDUCE_REACH)
+                    )
+                    if counts_as_detection and entity_id not in bots_removed:
                         bots_removed.add(entity_id)
                         if task_name == "task_misinfo":
                             metrics[task_name]["detection_times"].append(
@@ -209,7 +216,10 @@ class Grader:
         mean_collateral = float(task_metrics.get("mean_collateral", 0.0))
         raw_ttd = task_metrics.get("time_to_detection", None)
         if raw_ttd is None:
-            time_to_detection = float(task_metrics.get("mean_episode_length", max_hops))
+            # Bug #5 fix: use max_hops as fallback, NOT mean_episode_length.
+            # mean_episode_length for task_misinfo can be 100, causing speed_score
+            # = 1 - (100/20) = -4.0 → clamped to 0.0, crushing scores to zero.
+            time_to_detection = float(max_hops)
         else:
             time_to_detection = float(raw_ttd)
 
