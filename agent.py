@@ -52,7 +52,7 @@ CHECKPOINT_DIR: str = "models/nemesis/checkpoints"
 FINAL_MODEL_PATH: str = "models/nemesis/final_model.zip"
 TRAINING_LOG_PATH: str = "training_log.csv"
 
-# Reward shaping (matches existing SocialGuard-RL conventions)
+# Reward shaping (matches existing NEMESIS-RL conventions)
 REWARD_TRUE_POSITIVE: float = 1.0    # correct removal
 REWARD_FALSE_POSITIVE: float = -0.5  # wrongly removed benign
 REWARD_MISSED_DETECTION: float = -1.0  # failed to remove malicious

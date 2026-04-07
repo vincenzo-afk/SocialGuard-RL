@@ -1,5 +1,5 @@
 """
-tests/test_tasks.py — Task-specific tests for SocialGuard-RL (Phase 3).
+tests/test_tasks.py — Task-specific tests for NEMESIS-RL (Phase 3).
 
 Test categories:
 - reset() with different seeds produces different episodes

@@ -1,5 +1,5 @@
 """
-sim/user_behavior.py — Human and Bot behavior models for SocialGuard-RL.
+sim/user_behavior.py — Human and Bot behavior models for NEMESIS-RL.
 
 Both classes produce a structured feature dict whose keys match the Task 1
 observation vector defined in env/spaces.py.  The dict is consumed by

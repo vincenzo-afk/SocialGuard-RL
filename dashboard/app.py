@@ -39,13 +39,20 @@ from env.spaces import ACTION_NAMES, ACTION_REMOVE
 from dashboard.graph_view import generate_graph_base_html, apply_decision_log
 from dashboard.metrics_view import render_metrics_cards, render_decision_log, render_reward_chart
 
+try:
+    from streamlit_autorefresh import st_autorefresh
+    HAS_AUTOREFRESH = True
+except ImportError:
+    st_autorefresh = None  # type: ignore[assignment]
+    HAS_AUTOREFRESH = False
+
 # ---------------------------------------------------------------------------
 # Page config + custom CSS
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
     layout="wide",
-    page_title="NEMESIS-RL · SocialGuard",
+    page_title="NEMESIS-RL",
     page_icon="🛡️",
 )
 
@@ -119,8 +126,9 @@ def _check_token() -> None:
 # ---------------------------------------------------------------------------
 
 def _resolve_trusted_path(path_str: str, trusted_dir: str, suffixes: tuple) -> Path:
-    root = (Path.cwd() / trusted_dir).resolve()
-    p = (Path.cwd() / path_str).resolve()
+    repo_root = Path(__file__).resolve().parents[1]
+    root = (repo_root / trusted_dir).resolve()
+    p = (repo_root / path_str).resolve()
     if root not in p.parents:
         raise ValueError(f"Path must be under `{trusted_dir}/`")
     if suffixes and p.suffix.lower() not in suffixes:
@@ -428,7 +436,7 @@ def main() -> None:
       <span style="font-size:36px">🛡️</span>
       <div>
         <span style="font-size:26px;font-weight:800;color:#fff">NEMESIS-RL</span>
-        <span style="font-size:14px;color:#90caf9;margin-left:10px">SocialGuard Intelligence Platform</span>
+        <span style="font-size:14px;color:#90caf9;margin-left:10px">NEMESIS Intelligence Platform</span>
       </div>
     </div>""", unsafe_allow_html=True)
 
@@ -465,7 +473,12 @@ def main() -> None:
                       disabled=(st.session_state.terminated or st.session_state.truncated)):
             step_agent(env, agent); st.rerun()
     with c2:
-        if st.button("▶️ Play", use_container_width=True, disabled=st.session_state.running):
+        if st.button(
+            "▶️ Play",
+            use_container_width=True,
+            disabled=st.session_state.running or not HAS_AUTOREFRESH,
+            help=None if HAS_AUTOREFRESH else "Install streamlit-autorefresh to enable auto-play.",
+        ):
             st.session_state.running = True
             st.session_state.last_autoplay_tick = None
             st.rerun()
@@ -951,12 +964,8 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
     with tab_mastodon:
         st.subheader("🌍 Mastodon Live (Real-time)")
         st.write("Displays the last 50 Mastodon posts analyzed by the agent.")
-        try:
-            from streamlit_autorefresh import st_autorefresh
-            if os.environ.get("MASTODON_ACCESS_TOKEN"):
-                st_autorefresh(interval=5000, key="mastodon_refresh")
-        except ImportError:
-            pass
+        if HAS_AUTOREFRESH and os.environ.get("MASTODON_ACCESS_TOKEN"):
+            st_autorefresh(interval=5000, key="mastodon_refresh")
 
         mrecords = st.session_state.get("nemesis_records", [])
         if mrecords:
@@ -1027,9 +1036,7 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
                     prec = st.session_state.tp / tot
                     st.progress(prec, text=f"Precision: {prec:.1%}")
         else:
-            try:
-                from streamlit_autorefresh import st_autorefresh
-            except ImportError:
+            if not HAS_AUTOREFRESH:
                 st.session_state.running = False
                 st.warning(
                     "Auto-play requires `streamlit-autorefresh` for non-blocking updates."

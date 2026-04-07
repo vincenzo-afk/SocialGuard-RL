@@ -1,5 +1,5 @@
 """
-env/rewards.py — Multi-objective reward function for SocialGuard-RL.
+env/rewards.py — Multi-objective reward function for NEMESIS-RL.
 
 Reward formula (per step):
     R = α·correctness

@@ -25,7 +25,12 @@ logger = logging.getLogger(__name__)
 
 
 def load_model(model_path: str) -> Any:
-    """Load SB3 model. Tries PPO first, then DQN based on filename heuristic."""
+    """Load SB3 model. Tries PPO first, then DQN based on filename heuristic.
+
+    Warning:
+        Stable-Baselines3 model archives are trusted-code inputs. Keep model
+        loading restricted to trusted files under the local models directory.
+    """
     repo_root = Path(__file__).resolve().parent
     trusted_root = (repo_root / "models").resolve()
     path = (
@@ -52,7 +57,7 @@ def load_model(model_path: str) -> Any:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SocialGuard-RL Evaluation Script")
+    parser = argparse.ArgumentParser(description="NEMESIS-RL Evaluation Script")
     parser.add_argument("--model", type=str, required=True, help="Path to trained SB3 model (.zip)")
     parser.add_argument("--config", type=str, default="configs/task1.yaml", help="Path to environment config")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes for evaluation")

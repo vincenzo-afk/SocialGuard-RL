@@ -1,5 +1,5 @@
 """
-sim/social_graph.py — NetworkX social graph generator for SocialGuard-RL.
+sim/social_graph.py — NetworkX social graph generator for NEMESIS-RL.
 
 Generates a planted-partition graph with a hidden bot cluster.
 Every node is labelled with: is_bot, legitimacy_score, account_age_days,
