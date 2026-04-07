@@ -108,6 +108,7 @@ class RewardEngine:
         current_hop: int,
         allowed_actions: list[int],
         escalation_count: int,
+        task_name: str | None = None,
     ) -> RewardBreakdown:
         """Compute the step reward and return a fully decomposed breakdown.
 
@@ -122,6 +123,8 @@ class RewardEngine:
                 Actions outside this list receive the invalid-action penalty.
             escalation_count: Number of times escalate has been used this
                 episode so far (used to gate escalation penalty).
+            task_name: Optional task identifier used for task-specific reward
+                semantics such as disabling timing bonus for Task 3.
 
         Returns:
             RewardBreakdown with each named component and the total scalar.
@@ -140,7 +143,10 @@ class RewardEngine:
         )
 
         # ---- speed bonus ------------------------------------------------
-        bd.speed_bonus = self._compute_speed_bonus(action, is_bot, current_hop)
+        if task_name == "task_cib":
+            bd.speed_bonus = 0.0
+        else:
+            bd.speed_bonus = self._compute_speed_bonus(action, is_bot, current_hop)
 
         # ---- escalation penalty -----------------------------------------
         bd.escalation_penalty = self._compute_escalation_penalty(

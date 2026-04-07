@@ -273,14 +273,17 @@ class TestTaskMisinfo:
         task.step(ACTION_REMOVE)
         assert task.is_done()
 
-    def test_reduce_reach_terminates_episode(self, task: TaskMisinfo) -> None:
-        """Taking ACTION_REDUCE_REACH must also terminate the episode."""
+    def test_reduce_reach_keeps_episode_running(self, task: TaskMisinfo) -> None:
+        """Taking ACTION_REDUCE_REACH must slow spread without terminating."""
         from env.spaces import ACTION_REDUCE_REACH
         task.reset(seed=10)
+        before_info = task.get_info()
         before_hop = task.get_current_hop()
         task.step(ACTION_REDUCE_REACH)
-        assert task.is_done()
-        assert task.get_current_hop() == before_hop
+        after_info = task.get_info()
+        assert not task.is_done()
+        assert task.get_current_hop() >= before_hop
+        assert float(after_info["spread_rate"]) <= float(before_info["spread_rate"])
 
     def test_allow_does_not_terminate_immediately(self, task: TaskMisinfo) -> None:
         """Taking ACTION_ALLOW must not terminate the episode on the first step."""

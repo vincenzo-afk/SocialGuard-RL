@@ -204,6 +204,19 @@ class ContentEngine:
         self._removed = True
         logger.debug("ContentEngine: content %s removed.", self._post.post_id if self._post else "None")
 
+    def reduce_reach(self, factor: float = 0.5, min_spread: float = 0.05) -> None:
+        """Reduce spread aggressiveness without terminating the episode."""
+        if self._post is None or self._removed:
+            return
+        factor = float(np.clip(factor, 0.0, 1.0))
+        min_spread = float(np.clip(min_spread, 0.0, 1.0))
+        self._post.spread_rate = float(np.clip(max(self._post.spread_rate * factor, min_spread), 0.0, 1.0))
+        logger.debug(
+            "ContentEngine: content %s reduced reach to spread_rate=%.3f",
+            self._post.post_id,
+            self._post.spread_rate,
+        )
+
     def is_spread_done(self) -> bool:
         """Return True when spread has reached max hops or content is removed.
 

@@ -264,6 +264,7 @@ class SocialGuardEnv(gym.Env):
             current_hop=current_hop,
             allowed_actions=allowed,
             escalation_count=escalation_count,
+            task_name=str(getattr(self._task, "task_name", self._task_cfg.get("name", ""))),
         )
         reward: float = breakdown.total
 

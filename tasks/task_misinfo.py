@@ -63,7 +63,7 @@ class TaskMisinfo(BaseTask):
         self._legitimacy_score: float = 0.5
         self._escalation_count: int = 0
         self._collateral_count: int = 0
-        self._acted: bool = False       # True once agent takes a decisive action
+        self._acted: bool = False       # True once the content has been removed
         self._final_hop: int = 0
 
     # ------------------------------------------------------------------
@@ -148,7 +148,7 @@ class TaskMisinfo(BaseTask):
         return self._collateral_count
 
     def is_done(self) -> bool:
-        """Return True when spread is complete or agent has acted decisively."""
+        """Return True when spread is complete or the content has been removed."""
         if self._content_engine is None:
             return True
         return self._content_engine.is_spread_done() or self._acted
@@ -184,14 +184,15 @@ class TaskMisinfo(BaseTask):
         if action == ACTION_ESCALATE and ACTION_ESCALATE in self._allowed_actions:
             self._escalation_count += 1
 
-        # Decisive actions stop the episode
-        if action in (ACTION_REMOVE, ACTION_REDUCE_REACH):
+        # Remove is terminal. reduce_reach slows spread but keeps the episode live.
+        if action == ACTION_REMOVE:
             self._final_hop = self._content_engine.get_current_hop()
-            if action == ACTION_REMOVE:
-                self._content_engine.remove_content()
-                if self._current_gt == 0:
-                    self._collateral_count += 1
+            self._content_engine.remove_content()
+            if self._current_gt == 0:
+                self._collateral_count += 1
             self._acted = True
+        elif action == ACTION_REDUCE_REACH:
+            self._content_engine.reduce_reach()
 
         # Keep propagation moving only while the episode remains active.
         if not self._acted and not self._content_engine.is_spread_done():
