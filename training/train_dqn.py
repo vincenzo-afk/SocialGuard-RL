@@ -1,5 +1,5 @@
 """
-training/train_dqn.py — DQN training entry point for SocialGuard-RL.
+training/train_dqn.py — DQN training entry point for NEMESIS-RL.
 
 Usage:
   python -m training.train_dqn --config configs/default.yaml --run_name dqn_task1
@@ -53,7 +53,7 @@ def load_config(default_path: str, task_path: str | None = None) -> dict[str, An
 
 def main() -> None:
     """Run DQN training pipeline."""
-    parser = argparse.ArgumentParser(description="Train DQN on SocialGuard-RL")
+    parser = argparse.ArgumentParser(description="Train DQN on NEMESIS-RL")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
     parser.add_argument("--task_config", type=str, default=None)
     parser.add_argument("--run_name", type=str, default="dqn_run")
@@ -65,11 +65,13 @@ def main() -> None:
 
     # Create directories
     os.makedirs(args.output_dir, exist_ok=True)
+    run_dir = os.path.join(args.output_dir, args.run_name)
+    os.makedirs(run_dir, exist_ok=True)
     tb_log_dir = _tensorboard_log_dir(args.output_dir)
 
     # 1. Load configuration
     cfg = load_config(args.config, args.task_config)
-    merged_config_path = os.path.join(args.output_dir, f"{args.run_name}_config.yaml")
+    merged_config_path = os.path.join(run_dir, f"{args.run_name}_config.yaml")
     with open(merged_config_path, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f)
 

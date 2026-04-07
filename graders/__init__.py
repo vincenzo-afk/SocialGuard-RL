@@ -1,1 +1,1 @@
-"""graders package — evaluation engine for SocialGuard-RL."""
+"""graders package — evaluation engine for NEMESIS-RL."""

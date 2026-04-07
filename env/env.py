@@ -251,6 +251,7 @@ class SocialGuardEnv(gym.Env):
         except Exception:
             pre_step_info = {}
         pre_entity_id = pre_step_info.get("entity_id", None)
+        pre_display_account = pre_step_info.get("display_account", pre_entity_id)
 
         # Advance task state
         self._task.step(action)
@@ -313,7 +314,7 @@ class SocialGuardEnv(gym.Env):
             "ground_truth": gt,
             "action_taken": action,
             "action_name": ACTION_NAMES.get(action, "unknown"),
-            "flagged_account": pre_entity_id if pre_entity_id is not None else "Unknown",
+            "flagged_account": pre_display_account if pre_display_account is not None else "Unknown",
             "flagged_reason": reason if action in (1, 2, 3, 4) else "N/A",
             "reward_breakdown": breakdown.to_dict(),
             "collateral_count": collateral_count,
@@ -500,12 +501,16 @@ class MastodonEnv(SocialGuardEnv):
         # We don't use _task for Mastodon
         self._task = None
 
-        from mastodon import Mastodon
+        try:
+            from mastodon import Mastodon
+        except Exception:
+            logger.warning("Mastodon integration unavailable: install Mastodon.py to enable live mode.")
+            Mastodon = None  # type: ignore[assignment]
         import os
         
         token = os.environ.get("MASTODON_ACCESS_TOKEN", "").strip()
         self._mastodon_queue = []
-        if token:
+        if token and Mastodon is not None:
             try:
                 client = Mastodon(access_token=token, api_base_url="https://mastodon.social")
                 self._mastodon_queue = client.timeline_public(limit=100)
@@ -549,8 +554,11 @@ class MastodonEnv(SocialGuardEnv):
         created_at = account.get("created_at")
         if created_at:
             if isinstance(created_at, str):
-                from dateutil import parser
-                created_at = parser.parse(created_at)
+                try:
+                    from dateutil import parser
+                    created_at = parser.parse(created_at)
+                except Exception:
+                    created_at = None
             now = datetime.datetime.now(datetime.timezone.utc)
             if created_at.tzinfo is None:
                 now = now.replace(tzinfo=None)

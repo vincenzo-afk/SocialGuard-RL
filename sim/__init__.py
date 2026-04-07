@@ -1,1 +1,1 @@
-"""sim package — simulation engines for SocialGuard-RL."""
+"""sim package — simulation engines for NEMESIS-RL."""

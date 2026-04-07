@@ -1,1 +1,1 @@
-"""tasks package — concrete RL tasks for SocialGuard-RL."""
+"""tasks package — concrete RL tasks for NEMESIS-RL."""

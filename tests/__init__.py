@@ -1,1 +1,1 @@
-"""tests package — SocialGuard-RL test suite."""
+"""tests package — NEMESIS-RL test suite."""

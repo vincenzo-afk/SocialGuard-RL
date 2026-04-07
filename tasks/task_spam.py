@@ -84,7 +84,7 @@ class TaskSpam(BaseTask):
         self._collateral_count = 0
 
         # Build queue of accounts for this episode
-        n_accounts: int = self._max_steps
+        n_accounts: int = self._max_steps + 1
         n_bots: int = int(round(n_accounts * self._bot_ratio))
         n_humans: int = n_accounts - n_bots
 
@@ -168,6 +168,7 @@ class TaskSpam(BaseTask):
             "queue_position": self._current_idx,
             "queue_length": len(self._queue),
             "entity_id": int(self._current_idx),
+            "display_account": f"account_{self._current_idx:04d}",
             "ground_truth": self._current_gt,
             "legitimacy_score": self._legitimacy_score,
         }

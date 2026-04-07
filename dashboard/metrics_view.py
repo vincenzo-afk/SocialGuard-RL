@@ -1,5 +1,5 @@
 """
-dashboard/metrics_view.py — Reward and decision charts for SocialGuard-RL.
+dashboard/metrics_view.py — Reward and decision charts for NEMESIS-RL.
 
 Helper components for render lines and metric dashboards in Streamlit.
 """
@@ -22,12 +22,12 @@ def render_metrics_cards(episode_reward: float, tp: int, fp: int, episode_len: i
 
 
 def render_reward_chart(rewards: list[float]) -> None:
-    """Render a cumulative running reward chart over time."""
+    """Render the cumulative reward trajectory over time."""
     if not rewards:
         st.info("Waiting for data to chart reward progression...")
         return
         
-    df = pd.DataFrame(rewards, columns=["Episode Reward"])
+    df = pd.DataFrame(rewards, columns=["Cumulative Reward"])
     st.line_chart(df)
 
 

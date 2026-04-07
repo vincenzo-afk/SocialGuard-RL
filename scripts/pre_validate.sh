@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/pre_validate.sh — Pre-submission validation script for SocialGuard-RL.
+# scripts/pre_validate.sh — Pre-submission validation script for NEMESIS-RL.
 #
 # Checks:
 #   1. Docker image builds
@@ -14,8 +14,8 @@
 
 set -euo pipefail
 
-IMAGE_NAME="socialguard-rl-test"
-CONTAINER_NAME="socialguard-rl-validate"
+IMAGE_NAME="NEMESIS-RL-test"
+CONTAINER_NAME="NEMESIS-RL-validate"
 PORT=7860
 BASE_URL="http://localhost:${PORT}"
 
@@ -38,7 +38,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo ""
-echo "=== SocialGuard-RL Pre-Submission Validator ==="
+echo "=== NEMESIS-RL Pre-Submission Validator ==="
 echo ""
 
 # ---------------------------------------------------------------------------

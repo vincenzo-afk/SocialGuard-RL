@@ -1,5 +1,5 @@
 """
-baseline.py — Rule-based heuristic agent for SocialGuard-RL.
+baseline.py — Rule-based heuristic agent for NEMESIS-RL.
 
 This deterministic agent uses handcrafted thresholds on the raw observation
 features to make moderation decisions.  It serves as the performance floor
@@ -233,7 +233,7 @@ def run_evaluation(
 
 def main() -> None:
     """CLI entry point for running the baseline agent evaluation."""
-    parser = argparse.ArgumentParser(description="SocialGuard-RL Baseline Agent")
+    parser = argparse.ArgumentParser(description="NEMESIS-RL Baseline Agent")
     parser.add_argument(
         "--config", default="configs/task1.yaml",
         help="Path to task YAML config",

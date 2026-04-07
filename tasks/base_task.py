@@ -1,5 +1,5 @@
 """
-tasks/base_task.py — Abstract base class for all SocialGuard-RL tasks.
+tasks/base_task.py — Abstract base class for all NEMESIS-RL tasks.
 
 Every concrete task (task_spam, task_misinfo, task_cib) must subclass
 `BaseTask` and implement all abstract methods.  The `env.py` core calls
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class BaseTask(ABC):
-    """Abstract interface that every SocialGuard-RL task must implement.
+    """Abstract interface that every NEMESIS-RL task must implement.
 
     Args:
         task_cfg: Dict with task-specific config keys (name, bot_ratio,

@@ -1,5 +1,5 @@
 """
-graders/grader.py — Evaluation Engine for SocialGuard-RL.
+graders/grader.py — Evaluation Engine for NEMESIS-RL.
 
 Run evaluation episodes for a given policy and compute metrics:
 precision, recall, F1, mean reward, mean length, and time-to-detection.
@@ -66,7 +66,7 @@ class Grader:
             Dict containing nested metrics by task name.
         """
         metrics: dict[str, Any] = collections.defaultdict(lambda: {
-            "tp": 0, "fp": 0, "fn": 0, "tn": 0,
+            "tp": 0, "fp": 0, "fn": 0,
             "rewards": [], "lengths": [],
             "detection_times": [],
             "collateral": [],
@@ -108,8 +108,11 @@ class Grader:
 
                 entity_id = step_info.get("entity_id")
                 if entity_id is None:
-                    # Task 2 presents one content entity over multiple steps.
-                    entity_id = "misinfo_content" if task_name == "task_misinfo" else step_info.get("episode_step")
+                    entity_id = (
+                        f"misinfo_ep{ep}"
+                        if task_name == "task_misinfo"
+                        else step_info.get("episode_step")
+                    )
                 entity_id = str(entity_id)
 
                 if gt == 1:
@@ -129,8 +132,6 @@ class Grader:
                             metrics[task_name]["detection_times"].append(step_info["episode_step"])
                 elif act == ACTION_REMOVE:
                     false_removes += 1
-                else:
-                    metrics[task_name]["tn"] += 1
 
                 if (terminated or truncated) and "collateral_count" in step_info:
                     metrics[task_name]["collateral"].append(step_info["collateral_count"])
