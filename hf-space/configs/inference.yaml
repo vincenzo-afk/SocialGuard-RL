@@ -3,6 +3,7 @@ graph:
   bot_cluster_size: 20
   intra_cluster_density: 0.35
   inter_cluster_density: 0.05
+  real_intra_density: 0.08
   embedding_dim: 64
   embedding_method: "spectral"
 env:

@@ -63,14 +63,14 @@ def get_env_and_lock(task_name: str) -> tuple[SocialGuardEnv, threading.Lock]:
             status_code=400,
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
-    env = _envs.get(task_name)
-    if env is not None:
-        return env, _locks[task_name]
+    # Bug #2 fix: check BOTH dicts atomically to avoid KeyError race condition
+    # where _envs[task] is set but _locks[task] is not yet written by a concurrent thread.
+    if task_name in _envs and task_name in _locks:
+        return _envs[task_name], _locks[task_name]
 
     with _registry_lock:
-        env = _envs.get(task_name)
-        if env is not None:
-            return env, _locks[task_name]
+        if task_name in _envs and task_name in _locks:
+            return _envs[task_name], _locks[task_name]
 
         lock = _locks.setdefault(task_name, threading.Lock())
         try:
@@ -384,8 +384,8 @@ def metrics():
     return "\n".join(lines) or "# no envs initialized"
 
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+# Bug #1 fix: _grade_worker MUST be defined before if __name__ == "__main__" so that
+# spawned child processes (mp.get_context("spawn")) can pickle and import it correctly.
 def _grade_worker(task_name: str, n_episodes: int, seed: int, out_queue: mp.Queue) -> None:
     """Run grading in an isolated child process so timeouts can terminate cleanly."""
     try:
@@ -428,3 +428,7 @@ def _grade_worker(task_name: str, n_episodes: int, seed: int, out_queue: mp.Queu
             env.close()
     except Exception as exc:
         out_queue.put({"ok": False, "error": str(exc)})
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=7860)

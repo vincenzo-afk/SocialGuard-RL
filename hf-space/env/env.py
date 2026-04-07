@@ -375,7 +375,8 @@ class SocialGuardEnv(gym.Env):
         self._env_cfg = self._cfg.get("env", self._env_cfg)
         self._task_cfg = self._cfg.get("task", self._task_cfg)
         self._reward_cfg = self._cfg.get("reward", self._reward_cfg)
-        self._reward_engine = RewardEngine(self._reward_cfg)
+        # Bug #8 fix: do NOT rebuild reward engine here — changes take effect on next reset().
+        # Rebuilding mid-episode (during curriculum callbacks) can destabilize training runs.
 
         # Best-effort: apply relevant overrides to an already-instantiated task.
         if self._task is not None:
