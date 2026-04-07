@@ -1,0 +1,2327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEMESIS-RL</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --panel: #101010;
+            --surface: #131313;
+            --surface-2: #161616;
+            --line: #1a1a1a;
+            --line-strong: #242424;
+            --text: #d7ffe8;
+            --muted: #6fa388;
+            --accent: #00ff88;
+            --accent-soft: rgba(0, 255, 136, 0.16);
+            --accent-ghost: rgba(0, 255, 136, 0.08);
+            --yellow: #ffd84d;
+            --orange: #ff9b33;
+            --red: #ff5c5c;
+            --purple: #b37dff;
+            --shadow: 0 0 0 1px rgba(0, 255, 136, 0.04), 0 24px 80px rgba(0, 0, 0, 0.45);
+            --header-h: 58px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            min-height: 100%;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "JetBrains Mono", monospace;
+            overflow: hidden;
+        }
+
+        body {
+            position: relative;
+            background-image:
+                linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+                radial-gradient(circle at 20% 0%, rgba(0, 255, 136, 0.09), transparent 28%),
+                radial-gradient(circle at 100% 0%, rgba(0, 255, 136, 0.05), transparent 22%);
+            background-size: 24px 24px, 24px 24px, auto, auto;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 32%, transparent 68%, rgba(255, 255, 255, 0.015)),
+                repeating-linear-gradient(180deg, rgba(0, 255, 136, 0.025), rgba(0, 255, 136, 0.025) 1px, transparent 1px, transparent 4px);
+            mix-blend-mode: screen;
+            opacity: 0.25;
+        }
+
+        button,
+        input,
+        select {
+            font: inherit;
+            color: inherit;
+        }
+
+        button {
+            cursor: pointer;
+            border: 1px solid var(--line-strong);
+            background: linear-gradient(180deg, rgba(0, 255, 136, 0.06), rgba(0, 255, 136, 0.02));
+            padding: 11px 12px;
+            text-align: left;
+            transition: border-color 140ms ease, color 140ms ease, background 140ms ease, transform 140ms ease;
+        }
+
+        button:hover:not(:disabled),
+        button:focus-visible {
+            border-color: rgba(0, 255, 136, 0.55);
+            color: #f2fff7;
+            outline: none;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.35;
+        }
+
+        input[type="number"],
+        input[type="text"] {
+            width: 100%;
+            background: #0b0b0b;
+            border: 1px solid var(--line-strong);
+            padding: 10px 11px;
+            outline: none;
+        }
+
+        input[type="number"]:focus,
+        input[type="text"]:focus {
+            border-color: rgba(0, 255, 136, 0.6);
+        }
+
+        input[type="range"] {
+            width: 100%;
+            appearance: none;
+            height: 2px;
+            background: var(--line-strong);
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            background: var(--accent);
+            border: 1px solid #082615;
+        }
+
+        .topbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--header-h);
+            z-index: 40;
+            display: grid;
+            grid-template-columns: max-content max-content 1fr max-content;
+            gap: 14px;
+            align-items: center;
+            padding: 0 16px;
+            background: rgba(10, 10, 10, 0.92);
+            border-bottom: 1px solid var(--line);
+            backdrop-filter: blur(12px);
+        }
+
+        .brand {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--accent);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .status-cluster,
+        .header-meta,
+        .header-counter {
+            display: grid;
+            grid-auto-flow: column;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .status-cluster {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .status-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--red);
+            box-shadow: 0 0 0 0 rgba(255, 92, 92, 0.4);
+            transition: background 180ms ease;
+        }
+
+        .status-dot.online {
+            background: var(--accent);
+            animation: pulse 1.4s infinite;
+        }
+
+        .status-dot.offline {
+            background: var(--red);
+            box-shadow: none;
+        }
+
+        .header-label {
+            color: var(--muted);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .header-value {
+            color: var(--text);
+            font-size: 12px;
+        }
+
+        .app-shell {
+            position: relative;
+            display: grid;
+            grid-template-columns: 280px minmax(0, 1fr) 320px;
+            gap: 12px;
+            height: calc(100vh - var(--header-h));
+            padding: 12px;
+            margin-top: var(--header-h);
+        }
+
+        .panel {
+            position: relative;
+            display: grid;
+            align-content: start;
+            gap: 14px;
+            min-height: 0;
+            background:
+                linear-gradient(180deg, rgba(0, 255, 136, 0.03), transparent 22%),
+                linear-gradient(180deg, #111111, #0c0c0c);
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .panel::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            border: 1px solid rgba(255, 255, 255, 0.015);
+        }
+
+        .panel-scroll {
+            overflow: auto;
+            padding: 16px;
+        }
+
+        .panel-title {
+            display: grid;
+            grid-auto-flow: column;
+            justify-content: start;
+            gap: 8px;
+            align-items: center;
+            margin: 0;
+            font-size: 12px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+
+        .panel-title::before {
+            content: "[";
+            color: var(--accent);
+        }
+
+        .panel-title::after {
+            content: "]";
+            color: var(--accent);
+        }
+
+        .section {
+            display: grid;
+            gap: 10px;
+        }
+
+        .microcopy {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .task-grid {
+            display: grid;
+            gap: 8px;
+        }
+
+        .task-choice input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .task-choice label {
+            display: grid;
+            gap: 4px;
+            padding: 12px;
+            border: 1px solid var(--line-strong);
+            background: rgba(255, 255, 255, 0.02);
+            cursor: pointer;
+            transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+        }
+
+        .task-choice label:hover {
+            border-color: rgba(0, 255, 136, 0.42);
+            transform: translateY(-1px);
+        }
+
+        .task-choice input:checked + label {
+            border-color: rgba(0, 255, 136, 0.65);
+            background: linear-gradient(180deg, rgba(0, 255, 136, 0.12), rgba(0, 255, 136, 0.04));
+            box-shadow: inset 0 0 0 1px rgba(0, 255, 136, 0.18);
+        }
+
+        .task-label {
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .task-desc {
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 108px;
+            gap: 8px;
+        }
+
+        .status-strip {
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 12px;
+            background: rgba(0, 255, 136, 0.05);
+            border: 1px solid var(--line-strong);
+            min-height: 42px;
+        }
+
+        .status-tag {
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .status-message {
+            color: var(--text);
+            font-size: 11px;
+        }
+
+        .action-stack {
+            display: grid;
+            gap: 8px;
+        }
+
+        .action-button {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) max-content;
+            gap: 8px;
+            align-items: center;
+            min-height: 52px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+            border-left-width: 3px;
+        }
+
+        .action-button[data-color="allow"] {
+            border-left-color: #00ff88;
+        }
+
+        .action-button[data-color="warn"] {
+            border-left-color: #ffd84d;
+        }
+
+        .action-button[data-color="reduce"] {
+            border-left-color: #ff9b33;
+        }
+
+        .action-button[data-color="remove"] {
+            border-left-color: #ff5c5c;
+        }
+
+        .action-button[data-color="escalate"] {
+            border-left-color: #b37dff;
+        }
+
+        .action-name {
+            font-weight: 700;
+            letter-spacing: 0.04em;
+        }
+
+        .action-shortcut {
+            color: var(--muted);
+            font-size: 11px;
+            border: 1px solid var(--line-strong);
+            padding: 3px 6px;
+        }
+
+        .auto-block {
+            display: grid;
+            gap: 10px;
+            border: 1px solid var(--line-strong);
+            background: rgba(255, 255, 255, 0.02);
+            padding: 12px;
+        }
+
+        .switch-row {
+            display: grid;
+            grid-template-columns: 1fr max-content;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .switch-wrap {
+            display: grid;
+            grid-auto-flow: column;
+            gap: 8px;
+            align-items: center;
+            justify-content: start;
+        }
+
+        .switch {
+            position: relative;
+            width: 46px;
+            height: 22px;
+        }
+
+        .switch input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .slider {
+            position: absolute;
+            inset: 0;
+            background: #101010;
+            border: 1px solid var(--line-strong);
+        }
+
+        .slider::before {
+            content: "";
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: var(--muted);
+            transition: transform 160ms ease, background 160ms ease;
+        }
+
+        .switch input:checked + .slider {
+            background: rgba(0, 255, 136, 0.12);
+            border-color: rgba(0, 255, 136, 0.55);
+        }
+
+        .switch input:checked + .slider::before {
+            transform: translateX(24px);
+            background: var(--accent);
+        }
+
+        .speed-readout {
+            color: var(--accent);
+            font-size: 12px;
+        }
+
+        .last-action {
+            display: grid;
+            gap: 6px;
+            min-height: 68px;
+            padding: 12px;
+            border: 1px solid var(--line-strong);
+            background: linear-gradient(180deg, rgba(0, 255, 136, 0.08), rgba(0, 255, 136, 0.02));
+        }
+
+        .last-action .primary {
+            color: var(--accent);
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .last-action .secondary {
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .center-panel {
+            grid-template-rows: auto auto minmax(0, 1fr);
+        }
+
+        .center-head {
+            display: grid;
+            gap: 6px;
+            padding: 16px 16px 0;
+        }
+
+        .headline {
+            margin: 0;
+            font-size: 22px;
+            line-height: 1.2;
+            color: #effff5;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .headline-sub {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .tab-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            padding: 0 16px;
+        }
+
+        .tab-button {
+            display: grid;
+            grid-template-columns: 1fr max-content;
+            gap: 8px;
+            align-items: center;
+            min-height: 44px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .tab-button.active {
+            border-color: rgba(0, 255, 136, 0.65);
+            color: var(--accent);
+            background: linear-gradient(180deg, rgba(0, 255, 136, 0.11), rgba(0, 255, 136, 0.03));
+        }
+
+        .tab-key {
+            color: var(--muted);
+            font-size: 11px;
+            border: 1px solid var(--line-strong);
+            padding: 3px 6px;
+        }
+
+        .viewframe {
+            position: relative;
+            min-height: 0;
+            padding: 0 16px 16px;
+        }
+
+        .tab-panel {
+            display: none;
+            grid-template-rows: auto minmax(0, 1fr);
+            gap: 10px;
+            height: 100%;
+        }
+
+        .tab-panel.active {
+            display: grid;
+        }
+
+        .panel-meta {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .meta-box {
+            border: 1px solid var(--line-strong);
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .canvas-frame,
+        .timeline-frame {
+            position: relative;
+            min-height: 0;
+            border: 1px solid var(--line-strong);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
+                linear-gradient(180deg, rgba(0, 255, 136, 0.03), rgba(0, 255, 136, 0));
+            overflow: hidden;
+        }
+
+        .canvas-frame canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .timeline-frame {
+            padding: 12px;
+            overflow: hidden;
+        }
+
+        .timeline-track {
+            position: relative;
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: 18px;
+            gap: 4px;
+            align-content: start;
+            height: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding-bottom: 8px;
+        }
+
+        .timeline-block {
+            position: relative;
+            height: 72px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            transform: translateX(10px);
+            opacity: 0;
+            animation: timelineIn 260ms ease forwards;
+        }
+
+        .timeline-block::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: var(--reward-scale, 12%);
+            background: rgba(255, 255, 255, 0.22);
+        }
+
+        .timeline-empty {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            pointer-events: none;
+        }
+
+        .tooltip {
+            position: fixed;
+            z-index: 60;
+            padding: 10px 12px;
+            border: 1px solid rgba(0, 255, 136, 0.42);
+            background: rgba(5, 13, 8, 0.95);
+            color: var(--text);
+            font-size: 11px;
+            line-height: 1.5;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 120ms ease, transform 120ms ease;
+            box-shadow: 0 10px 35px rgba(0, 0, 0, 0.45);
+            max-width: 220px;
+        }
+
+        .tooltip.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .scanner {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 140ms ease;
+            overflow: hidden;
+            z-index: 10;
+        }
+
+        .center-panel.is-loading .scanner {
+            opacity: 1;
+        }
+
+        .scanner::before {
+            content: "";
+            position: absolute;
+            top: 18px;
+            left: -35%;
+            width: 35%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.95), transparent);
+            box-shadow: 0 0 14px rgba(0, 255, 136, 0.65);
+            animation: scan 1s linear infinite;
+        }
+
+        .metrics-panel {
+            grid-template-rows: auto minmax(0, 1fr);
+        }
+
+        .metrics-layout {
+            display: grid;
+            gap: 14px;
+            min-height: 0;
+            overflow: auto;
+            padding: 16px;
+        }
+
+        .terminal {
+            display: grid;
+            gap: 8px;
+            padding: 14px;
+            border: 1px solid var(--line-strong);
+            background: rgba(0, 255, 136, 0.03);
+        }
+
+        .terminal-line {
+            display: grid;
+            grid-template-columns: 88px minmax(0, 1fr);
+            gap: 10px;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .terminal-key {
+            color: var(--muted);
+        }
+
+        .terminal-value {
+            color: var(--text);
+            min-width: 0;
+        }
+
+        .reward-flash {
+            transition: color 160ms ease, text-shadow 160ms ease;
+        }
+
+        .reward-flash.positive {
+            color: var(--accent);
+            text-shadow: 0 0 12px rgba(0, 255, 136, 0.35);
+            animation: rewardPulsePositive 360ms ease;
+        }
+
+        .reward-flash.negative {
+            color: var(--red);
+            text-shadow: 0 0 12px rgba(255, 92, 92, 0.35);
+            animation: rewardPulseNegative 360ms ease;
+        }
+
+        .obs-box,
+        .grading-box,
+        .diag-box {
+            display: grid;
+            gap: 10px;
+            border: 1px solid var(--line-strong);
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .obs-list {
+            display: grid;
+            gap: 6px;
+        }
+
+        .obs-row {
+            display: grid;
+            grid-template-columns: 26px minmax(0, 1fr) max-content;
+            gap: 8px;
+            align-items: center;
+            font-size: 12px;
+            min-height: 24px;
+        }
+
+        .obs-index {
+            color: var(--muted);
+            border: 1px solid var(--line);
+            padding: 3px 0;
+            text-align: center;
+            font-size: 10px;
+        }
+
+        .obs-name {
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .obs-value {
+            color: var(--accent);
+        }
+
+        .diag-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .diag-item {
+            display: grid;
+            gap: 4px;
+            padding: 10px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .diag-key {
+            color: var(--muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .diag-value {
+            font-size: 13px;
+            color: var(--text);
+        }
+
+        .grade-actions {
+            display: grid;
+            gap: 8px;
+        }
+
+        .grade-button {
+            min-height: 42px;
+        }
+
+        .grade-score {
+            display: grid;
+            gap: 8px;
+            min-height: 88px;
+            align-content: start;
+        }
+
+        .score-large {
+            font-size: 34px;
+            font-weight: 800;
+            color: var(--accent);
+            line-height: 1;
+        }
+
+        .progress-shell {
+            position: relative;
+            height: 10px;
+            background: #0b0b0b;
+            border: 1px solid var(--line-strong);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 0;
+            background: linear-gradient(90deg, rgba(0, 255, 136, 0.2), rgba(0, 255, 136, 0.9));
+            transition: width 420ms ease;
+        }
+
+        .grade-table {
+            display: grid;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .grade-row {
+            display: grid;
+            grid-template-columns: 96px 1fr 54px;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .grade-row .mini-track {
+            height: 8px;
+            border: 1px solid var(--line-strong);
+            background: #0b0b0b;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .grade-row .mini-track span {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 0;
+            background: rgba(0, 255, 136, 0.85);
+            transition: width 420ms ease;
+        }
+
+        .formula {
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1.55;
+        }
+
+        .toast {
+            position: fixed;
+            left: 16px;
+            bottom: 16px;
+            z-index: 80;
+            min-width: 280px;
+            max-width: min(460px, calc(100vw - 32px));
+            padding: 12px 14px;
+            border: 1px solid rgba(255, 92, 92, 0.48);
+            background: rgba(20, 6, 6, 0.96);
+            color: #ffe1e1;
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+            opacity: 0;
+            transform: translateY(14px);
+            pointer-events: none;
+            transition: opacity 180ms ease, transform 180ms ease;
+        }
+
+        .toast.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 70;
+            display: grid;
+            place-items: center;
+            background: rgba(3, 8, 5, 0.8);
+            backdrop-filter: blur(12px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 180ms ease;
+        }
+
+        .overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .overlay-card {
+            width: min(560px, calc(100vw - 36px));
+            display: grid;
+            gap: 12px;
+            padding: 28px;
+            border: 1px solid rgba(0, 255, 136, 0.4);
+            background: linear-gradient(180deg, rgba(0, 255, 136, 0.08), rgba(0, 0, 0, 0.82));
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+
+        .overlay-title {
+            margin: 0;
+            color: var(--accent);
+            font-size: clamp(28px, 5vw, 42px);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .overlay-meta {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin: 6px 0;
+        }
+
+        .overlay-metric {
+            border: 1px solid var(--line-strong);
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .overlay-metric .k {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .overlay-metric .v {
+            color: var(--text);
+            font-size: 20px;
+        }
+
+        .overlay-button {
+            margin-top: 4px;
+            text-align: center;
+            font-weight: 700;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(0, 255, 136, 0.34);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(0, 255, 136, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(0, 255, 136, 0);
+            }
+        }
+
+        @keyframes scan {
+            from {
+                transform: translateX(0);
+            }
+            to {
+                transform: translateX(385%);
+            }
+        }
+
+        @keyframes timelineIn {
+            from {
+                opacity: 0;
+                transform: translateX(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes rewardPulsePositive {
+            0% {
+                background: rgba(0, 255, 136, 0.24);
+            }
+            100% {
+                background: transparent;
+            }
+        }
+
+        @keyframes rewardPulseNegative {
+            0% {
+                background: rgba(255, 92, 92, 0.18);
+            }
+            100% {
+                background: transparent;
+            }
+        }
+
+        @media (max-width: 1080px) {
+            .app-shell {
+                grid-template-columns: 260px minmax(0, 1fr);
+                grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+            }
+
+            .metrics-panel {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 767px) {
+            html, body {
+                overflow: auto;
+            }
+
+            .topbar {
+                grid-template-columns: 1fr;
+                height: auto;
+                gap: 8px;
+                padding: 12px;
+            }
+
+            .app-shell {
+                margin-top: 118px;
+                height: auto;
+                min-height: calc(100vh - 118px);
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto;
+            }
+
+            .center-panel,
+            .metrics-panel,
+            .panel {
+                min-height: 0;
+            }
+
+            .tab-strip {
+                grid-template-columns: 1fr;
+            }
+
+            .tab-button[data-tab="timeline"],
+            .tab-button[data-tab="reward"],
+            #panel-timeline,
+            #panel-reward {
+                display: none !important;
+            }
+
+            .diag-grid,
+            .overlay-meta,
+            .panel-meta,
+            .control-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .timeline-track {
+                grid-auto-columns: 16px;
+            }
+
+            .headline {
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">SOCIALGUARD-RL</div>
+        <div class="status-cluster">
+            <div id="serverDot" class="status-dot offline"></div>
+            <div id="serverStatus">SERVER OFFLINE</div>
+        </div>
+        <div class="header-meta">
+            <div class="header-label">Task</div>
+            <div id="headerTask" class="header-value">task_spam</div>
+            <div class="header-label">Status</div>
+            <div id="headerStatus" class="header-value">IDLE</div>
+        </div>
+        <div class="header-counter">
+            <div class="header-label">Episode</div>
+            <div id="headerEpisode" class="header-value">000</div>
+            <div class="header-label">Step</div>
+            <div id="headerStep" class="header-value">000</div>
+        </div>
+    </header>
+
+    <main class="app-shell">
+        <section class="panel">
+            <div class="panel-scroll">
+                <div class="section">
+                    <h2 class="panel-title">Task Control</h2>
+                    <div class="task-grid" id="taskGrid">
+                        <div class="task-choice">
+                            <input id="task_spam" type="radio" name="task" value="task_spam" checked>
+                            <label for="task_spam">
+                                <span class="task-label">task_spam</span>
+                                <span class="task-desc">Account-level spam triage tuned for high-volume moderation queues.</span>
+                            </label>
+                        </div>
+                        <div class="task-choice">
+                            <input id="task_misinfo" type="radio" name="task" value="task_misinfo">
+                            <label for="task_misinfo">
+                                <span class="task-label">task_misinfo</span>
+                                <span class="task-desc">Content spread intervention focused on stopping misinformation before it compounds.</span>
+                            </label>
+                        </div>
+                        <div class="task-choice">
+                            <input id="task_cib" type="radio" name="task" value="task_cib">
+                            <label for="task_cib">
+                                <span class="task-label">task_cib</span>
+                                <span class="task-desc">Graph-native takedown mode for coordinated inauthentic behavior networks.</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="taskDescription" class="microcopy">Account-level spam triage tuned for high-volume moderation queues.</div>
+                </div>
+
+                <div class="section">
+                    <h2 class="panel-title">Agent Config</h2>
+                    <div class="control-grid">
+                        <input id="seedInput" type="number" value="42" aria-label="Seed">
+                        <button id="resetButton" type="button">RESET [R]</button>
+                    </div>
+                    <div class="status-strip">
+                        <div id="envStatusTag" class="status-tag">IDLE</div>
+                        <div id="envStatusMessage" class="status-message">Select a task and reset the environment to arm the action stack.</div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2 class="panel-title">Actions</h2>
+                    <div class="action-stack">
+                        <button class="action-button" data-action="0" data-color="allow" type="button">
+                            <span class="action-name">ALLOW</span>
+                            <span class="action-shortcut">[1]</span>
+                        </button>
+                        <button class="action-button" data-action="1" data-color="warn" type="button">
+                            <span class="action-name">WARN</span>
+                            <span class="action-shortcut">[2]</span>
+                        </button>
+                        <button class="action-button" data-action="2" data-color="reduce" type="button">
+                            <span class="action-name">REDUCE_REACH</span>
+                            <span class="action-shortcut">[3]</span>
+                        </button>
+                        <button class="action-button" data-action="3" data-color="remove" type="button">
+                            <span class="action-name">REMOVE</span>
+                            <span class="action-shortcut">[4]</span>
+                        </button>
+                        <button class="action-button" data-action="4" data-color="escalate" type="button">
+                            <span class="action-name">ESCALATE</span>
+                            <span class="action-shortcut">[5]</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2 class="panel-title">Autoplay</h2>
+                    <div class="auto-block">
+                        <div class="switch-row">
+                            <div>
+                                <div class="task-label">AUTO PLAY</div>
+                                <div class="microcopy">Smart policy picks REMOVE or ALLOW for spam/CIB, REDUCE_REACH or REMOVE for misinfo.</div>
+                            </div>
+                            <div class="switch-wrap">
+                                <span id="autoLabel" class="speed-readout">OFF</span>
+                                <label class="switch" aria-label="Auto play toggle">
+                                    <input id="autoToggle" type="checkbox">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="switch-row">
+                                <div class="task-label">SPEED</div>
+                                <div id="speedValue" class="speed-readout">700ms</div>
+                            </div>
+                            <input id="speedSlider" type="range" min="100" max="2000" step="100" value="700">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2 class="panel-title">Last Action</h2>
+                    <div class="last-action">
+                        <div id="lastActionPrimary" class="primary">NO ACTION YET</div>
+                        <div id="lastActionSecondary" class="secondary">Reset the environment to start a live episode.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="centerPanel" class="panel center-panel">
+            <div class="scanner"></div>
+            <div class="center-head">
+                <h1 class="headline">Mission Control For AI Moderation</h1>
+                <div class="headline-sub">Dense live telemetry for policy rollout, episode grading, and observation-level debugging. Keyboard: Q/W/E tabs, R reset, Space autoplay, G grade current task.</div>
+            </div>
+
+            <div class="tab-strip">
+                <button class="tab-button active" data-tab="observation" type="button">
+                    <span>OBSERVATION VECTOR</span>
+                    <span class="tab-key">Q</span>
+                </button>
+                <button class="tab-button" data-tab="timeline" type="button">
+                    <span>EPISODE TIMELINE</span>
+                    <span class="tab-key">W</span>
+                </button>
+                <button class="tab-button" data-tab="reward" type="button">
+                    <span>REWARD CHART</span>
+                    <span class="tab-key">E</span>
+                </button>
+            </div>
+
+            <div class="viewframe">
+                <div id="panel-observation" class="tab-panel active">
+                    <div class="panel-meta">
+                        <div class="meta-box">VECTOR DIMENSIONS<br><span id="vectorDims">68</span></div>
+                        <div class="meta-box">MAX VALUE<br><span id="vectorMax">0.0000</span></div>
+                        <div class="meta-box">MIN VALUE<br><span id="vectorMin">0.0000</span></div>
+                    </div>
+                    <div class="canvas-frame">
+                        <canvas id="observationCanvas" aria-label="Observation vector canvas"></canvas>
+                    </div>
+                </div>
+
+                <div id="panel-timeline" class="tab-panel">
+                    <div class="panel-meta">
+                        <div class="meta-box">RECORDED STEPS<br><span id="timelineCount">0</span></div>
+                        <div class="meta-box">DONE STATES<br><span id="timelineDone">0</span></div>
+                        <div class="meta-box">LATEST REWARD<br><span id="timelineReward">+0.0000</span></div>
+                    </div>
+                    <div class="timeline-frame">
+                        <div id="timelineTrack" class="timeline-track"></div>
+                        <div id="timelineEmpty" class="timeline-empty">WAITING FOR EPISODE STEPS</div>
+                    </div>
+                </div>
+
+                <div id="panel-reward" class="tab-panel">
+                    <div class="panel-meta">
+                        <div class="meta-box">CUMULATIVE REWARD<br><span id="rewardCurrent">+0.0000</span></div>
+                        <div class="meta-box">STEP REWARDS<br><span id="rewardSteps">0</span></div>
+                        <div class="meta-box">ZERO LINE<br><span>LOCKED</span></div>
+                    </div>
+                    <div class="canvas-frame">
+                        <canvas id="rewardCanvas" aria-label="Reward chart canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel metrics-panel">
+            <div class="metrics-layout">
+                <div class="section">
+                    <h2 class="panel-title">Live Metrics</h2>
+                    <div class="terminal">
+                        <div class="terminal-line">
+                            <div class="terminal-key">STEP</div>
+                            <div id="stepTerminal" class="terminal-value">░░░░░░░░░░  000 / 200</div>
+                        </div>
+                        <div class="terminal-line">
+                            <div class="terminal-key">REWARD</div>
+                            <div id="rewardTerminal" class="terminal-value reward-flash">+0.0000</div>
+                        </div>
+                        <div class="terminal-line">
+                            <div class="terminal-key">CUMULATIVE</div>
+                            <div id="cumTerminal" class="terminal-value">+0.0000</div>
+                        </div>
+                        <div class="terminal-line">
+                            <div class="terminal-key">STATUS</div>
+                            <div id="statusTerminal" class="terminal-value">IDLE</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2 class="panel-title">Observation Info</h2>
+                    <div class="obs-box">
+                        <div class="microcopy">Current task slice with live values from the active observation vector.</div>
+                        <div id="obsList" class="obs-list"></div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2 class="panel-title">Diagnostics</h2>
+                    <div class="diag-box">
+                        <div id="diagGrid" class="diag-grid"></div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2 class="panel-title">Grading</h2>
+                    <div class="grading-box">
+                        <div class="grade-actions">
+                            <button id="gradeCurrentButton" class="grade-button" type="button">GRADE THIS TASK [G]</button>
+                            <button id="gradeAllButton" class="grade-button" type="button">GRADE ALL TASKS</button>
+                        </div>
+                        <div class="grade-score">
+                            <div id="gradeLarge" class="score-large">--.-%</div>
+                            <div class="progress-shell">
+                                <div id="gradeFill" class="progress-fill"></div>
+                            </div>
+                            <div id="gradeSummary" class="microcopy">No grading run yet. Trigger a task grade to inspect normalized performance.</div>
+                        </div>
+                        <div id="gradeTable" class="grade-table hidden"></div>
+                        <div id="formulaText" class="formula">Formula transparency will appear here after a grade response returns from the server.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+    <div id="tooltip" class="tooltip"></div>
+
+    <div id="episodeOverlay" class="overlay" aria-hidden="true">
+        <div class="overlay-card">
+            <h2 class="overlay-title">EPISODE COMPLETE</h2>
+            <div class="microcopy">Auto-reset engages in <span id="overlayCountdown">3</span>s unless you reset immediately.</div>
+            <div class="overlay-meta">
+                <div class="overlay-metric">
+                    <span class="k">FINAL CUMULATIVE REWARD</span>
+                    <span id="overlayReward" class="v">+0.0000</span>
+                </div>
+                <div class="overlay-metric">
+                    <span class="k">STEPS TAKEN</span>
+                    <span id="overlaySteps" class="v">000</span>
+                </div>
+            </div>
+            <button id="overlayResetButton" class="overlay-button" type="button">RESET</button>
+        </div>
+    </div>
+
+    <script>
+        const TASKS = {
+            task_spam: {
+                label: "task_spam",
+                description: "Account-level spam triage tuned for high-volume moderation queues.",
+                maxSteps: 200,
+                scoreFormula: "0.7 * F1 + 0.3 * sigmoid(mean_reward / 50)",
+                detailRows: [
+                    { index: 0, name: "age" },
+                    { index: 1, name: "posts/hr" },
+                    { index: 2, name: "follower_ratio" },
+                    { index: 3, name: "login_variance" },
+                    { index: 4, name: "content_rep" },
+                    { index: 5, name: "profile_score" },
+                    { index: 6, name: "device_diversity" },
+                    { index: 7, name: "ip_diversity" }
+                ]
+            },
+            task_misinfo: {
+                label: "task_misinfo",
+                description: "Content spread intervention focused on slowing or stopping misinformation before it compounds. Reduce reach is a soft intervention; remove is terminal.",
+                maxSteps: 200,
+                scoreFormula: "0.6 * F1 + 0.4 * max(0, 1 - mean_hop / max_hops)",
+                detailRows: [
+                    { index: 0, name: "spread_rate" },
+                    { index: 1, name: "fact_check_score" },
+                    { index: 2, name: "engagement" },
+                    { index: 3, name: "credibility" },
+                    { index: 4, name: "hop_count" },
+                    { index: 5, name: "timestep" }
+                ]
+            },
+            task_cib: {
+                label: "task_cib",
+                description: "Graph-native takedown mode for coordinated inauthentic behavior networks.",
+                maxSteps: 200,
+                scoreFormula: "0.5 * recall + 0.5 * F1 - min(collateral_rate * 2, 0.5)",
+                detailRows: [
+                    { derived: "bot_prob_est", name: "bot_prob_est" },
+                    { index: 66, name: "community_idx" },
+                    { index: 64, name: "degree_centrality" },
+                    { index: 65, name: "clustering_coeff" },
+                    { index: 67, name: "posts/hr_norm" },
+                    { index: 0, name: "embedding_0" },
+                    { index: 1, name: "embedding_1" },
+                    { index: 2, name: "embedding_2" }
+                ]
+            }
+        };
+
+        const ACTIONS = {
+            0: { label: "ALLOW", apiName: "allow", color: "#00ff88" },
+            1: { label: "WARN", apiName: "warn", color: "#ffd84d" },
+            2: { label: "REDUCE_REACH", apiName: "reduce_reach", color: "#ff9b33" },
+            3: { label: "REMOVE", apiName: "remove", color: "#ff5c5c" },
+            4: { label: "ESCALATE", apiName: "escalate", color: "#b37dff" }
+        };
+
+        const state = {
+            selectedTask: "task_spam",
+            serverOnline: false,
+            serverVersion: "unknown",
+            envReady: false,
+            status: "IDLE",
+            episodeCounter: 0,
+            stepCount: 0,
+            maxSteps: TASKS.task_spam.maxSteps,
+            reward: 0,
+            cumulativeReward: 0,
+            currentObservation: new Array(68).fill(0),
+            animatedObservation: new Array(68).fill(0),
+            rewardHistory: [],
+            cumulativeHistory: [],
+            timeline: [],
+            currentInfo: {},
+            autoEnabled: false,
+            autoDelay: 700,
+            autoTimer: null,
+            currentTab: "observation",
+            loadingCount: 0,
+            flashTimer: null,
+            overlayTimer: null,
+            overlayCountdownTimer: null,
+            overlayVisible: false
+        };
+
+        const elements = {
+            centerPanel: document.getElementById("centerPanel"),
+            headerTask: document.getElementById("headerTask"),
+            headerStatus: document.getElementById("headerStatus"),
+            headerEpisode: document.getElementById("headerEpisode"),
+            headerStep: document.getElementById("headerStep"),
+            serverDot: document.getElementById("serverDot"),
+            serverStatus: document.getElementById("serverStatus"),
+            taskDescription: document.getElementById("taskDescription"),
+            seedInput: document.getElementById("seedInput"),
+            envStatusTag: document.getElementById("envStatusTag"),
+            envStatusMessage: document.getElementById("envStatusMessage"),
+            resetButton: document.getElementById("resetButton"),
+            actionButtons: Array.from(document.querySelectorAll(".action-button")),
+            autoToggle: document.getElementById("autoToggle"),
+            autoLabel: document.getElementById("autoLabel"),
+            speedSlider: document.getElementById("speedSlider"),
+            speedValue: document.getElementById("speedValue"),
+            lastActionPrimary: document.getElementById("lastActionPrimary"),
+            lastActionSecondary: document.getElementById("lastActionSecondary"),
+            tabButtons: Array.from(document.querySelectorAll(".tab-button")),
+            tabPanels: {
+                observation: document.getElementById("panel-observation"),
+                timeline: document.getElementById("panel-timeline"),
+                reward: document.getElementById("panel-reward")
+            },
+            observationCanvas: document.getElementById("observationCanvas"),
+            rewardCanvas: document.getElementById("rewardCanvas"),
+            vectorDims: document.getElementById("vectorDims"),
+            vectorMax: document.getElementById("vectorMax"),
+            vectorMin: document.getElementById("vectorMin"),
+            timelineTrack: document.getElementById("timelineTrack"),
+            timelineEmpty: document.getElementById("timelineEmpty"),
+            timelineCount: document.getElementById("timelineCount"),
+            timelineDone: document.getElementById("timelineDone"),
+            timelineReward: document.getElementById("timelineReward"),
+            rewardCurrent: document.getElementById("rewardCurrent"),
+            rewardSteps: document.getElementById("rewardSteps"),
+            stepTerminal: document.getElementById("stepTerminal"),
+            rewardTerminal: document.getElementById("rewardTerminal"),
+            cumTerminal: document.getElementById("cumTerminal"),
+            statusTerminal: document.getElementById("statusTerminal"),
+            obsList: document.getElementById("obsList"),
+            diagGrid: document.getElementById("diagGrid"),
+            gradeCurrentButton: document.getElementById("gradeCurrentButton"),
+            gradeAllButton: document.getElementById("gradeAllButton"),
+            gradeLarge: document.getElementById("gradeLarge"),
+            gradeFill: document.getElementById("gradeFill"),
+            gradeSummary: document.getElementById("gradeSummary"),
+            gradeTable: document.getElementById("gradeTable"),
+            formulaText: document.getElementById("formulaText"),
+            toast: document.getElementById("toast"),
+            tooltip: document.getElementById("tooltip"),
+            overlay: document.getElementById("episodeOverlay"),
+            overlayCountdown: document.getElementById("overlayCountdown"),
+            overlayReward: document.getElementById("overlayReward"),
+            overlaySteps: document.getElementById("overlaySteps"),
+            overlayResetButton: document.getElementById("overlayResetButton")
+        };
+
+        function formatNumber(value, digits = 4) {
+            const num = Number.isFinite(Number(value)) ? Number(value) : 0;
+            const sign = num >= 0 ? "+" : "";
+            return `${sign}${num.toFixed(digits)}`;
+        }
+
+        function pad(value) {
+            return String(value).padStart(3, "0");
+        }
+
+        function clamp(value, min, max) {
+            return Math.min(max, Math.max(min, value));
+        }
+
+        function makeProgressBar(current, total, slots = 10) {
+            const safeTotal = Math.max(total, 1);
+            const filled = clamp(Math.round((current / safeTotal) * slots), 0, slots);
+            return `${"█".repeat(filled)}${"░".repeat(slots - filled)}`;
+        }
+
+        function updateDocumentTitle() {
+            document.title = state.envReady ? `${pad(state.stepCount)} · NEMESIS-RL` : "NEMESIS-RL";
+        }
+
+        function setServerStatus(online, version) {
+            state.serverOnline = online;
+            if (version) {
+                state.serverVersion = version;
+            }
+            elements.serverDot.classList.toggle("online", online);
+            elements.serverDot.classList.toggle("offline", !online);
+            elements.serverStatus.textContent = online
+                ? `SERVER LIVE ${state.serverVersion !== "unknown" ? `· v${state.serverVersion}` : ""}`
+                : "SERVER OFFLINE";
+        }
+
+        function setStatus(status, message) {
+            state.status = status;
+            elements.headerStatus.textContent = status;
+            elements.statusTerminal.textContent = status;
+            elements.envStatusTag.textContent = status;
+            elements.envStatusMessage.textContent = message;
+        }
+
+        function setLoading(isLoading) {
+            state.loadingCount += isLoading ? 1 : -1;
+            state.loadingCount = Math.max(0, state.loadingCount);
+            elements.centerPanel.classList.toggle("is-loading", state.loadingCount > 0);
+            const disabled = state.loadingCount > 0 || !state.envReady;
+            for (const button of elements.actionButtons) {
+                button.disabled = disabled;
+            }
+        }
+
+        function showToast(message) {
+            elements.toast.textContent = message;
+            elements.toast.classList.add("visible");
+            window.clearTimeout(elements.toast._timer);
+            elements.toast._timer = window.setTimeout(() => {
+                elements.toast.classList.remove("visible");
+            }, 3000);
+        }
+
+        async function safeJson(response) {
+            const text = await response.text();
+            if (!text) {
+                return {};
+            }
+            try {
+                return JSON.parse(text);
+            } catch (error) {
+                return { detail: text };
+            }
+        }
+
+        async function apiRequest(url, options = {}) {
+            setLoading(true);
+            let response;
+            try {
+                response = await fetch(url, {
+                    method: options.method || "GET",
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(options.headers || {})
+                    },
+                    body: options.body ? JSON.stringify(options.body) : undefined
+                });
+                const payload = await safeJson(response);
+                setServerStatus(true, response.headers.get("X-NEMESIS-Version"));
+                if (!response.ok) {
+                    throw new Error(payload.detail || `HTTP ${response.status}`);
+                }
+                return payload;
+            } catch (error) {
+                if (!response) {
+                    setServerStatus(false);
+                }
+                throw error;
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function selectTask(taskName) {
+            state.selectedTask = taskName;
+            state.maxSteps = TASKS[taskName].maxSteps;
+            elements.headerTask.textContent = taskName;
+            elements.taskDescription.textContent = TASKS[taskName].description;
+            renderObservationInfo();
+            renderDiagnostics();
+            renderMetricPanel();
+            updateFormulaText();
+            updateDocumentTitle();
+        }
+
+        function resetEpisodeState() {
+            state.stepCount = 0;
+            state.reward = 0;
+            state.cumulativeReward = 0;
+            state.currentObservation = new Array(68).fill(0);
+            state.animatedObservation = new Array(68).fill(0);
+            state.rewardHistory = [];
+            state.cumulativeHistory = [];
+            state.timeline = [];
+            state.currentInfo = {};
+            elements.timelineTrack.innerHTML = "";
+            elements.timelineEmpty.classList.remove("hidden");
+            elements.lastActionPrimary.textContent = "NO ACTION YET";
+            elements.lastActionSecondary.textContent = "Episode armed. Waiting for the first moderation decision.";
+            elements.rewardCurrent.textContent = formatNumber(0);
+            elements.rewardSteps.textContent = "0";
+            elements.timelineCount.textContent = "0";
+            elements.timelineDone.textContent = "0";
+            elements.timelineReward.textContent = formatNumber(0);
+            elements.vectorDims.textContent = "68";
+            elements.vectorMin.textContent = "0.0000";
+            elements.vectorMax.textContent = "0.0000";
+            renderObservationInfo();
+            renderDiagnostics();
+            renderMetricPanel();
+        }
+
+        function applyObservation(observation) {
+            state.currentObservation = Array.isArray(observation) ? observation.slice(0, 68) : new Array(68).fill(0);
+            while (state.currentObservation.length < 68) {
+                state.currentObservation.push(0);
+            }
+            elements.vectorDims.textContent = String(state.currentObservation.length);
+            const min = Math.min(...state.currentObservation);
+            const max = Math.max(...state.currentObservation);
+            elements.vectorMin.textContent = min.toFixed(4);
+            elements.vectorMax.textContent = max.toFixed(4);
+            renderObservationInfo();
+            renderDiagnostics();
+        }
+
+        function updateFromPayload(payload, context) {
+            applyObservation(payload.observation || []);
+            state.reward = Number(payload.reward || 0);
+            state.cumulativeReward = Number(payload.info?.cumulative_reward || state.cumulativeReward + state.reward);
+            state.stepCount = Number(payload.info?.episode_step || (context === "reset" ? 0 : state.stepCount + 1));
+            state.currentInfo = payload.info || {};
+
+            if (context === "step") {
+                state.rewardHistory.push(state.reward);
+                state.cumulativeHistory.push(state.cumulativeReward);
+                appendTimelineEntry({
+                    step: state.stepCount,
+                    action: Number(payload.info?.action_taken ?? -1),
+                    actionName: payload.info?.action_name || "unknown",
+                    reward: state.reward,
+                    done: Boolean(payload.terminated || payload.truncated)
+                });
+            }
+
+            if (context === "reset") {
+                state.rewardHistory = [];
+                state.cumulativeHistory = [];
+                state.timeline = [];
+                elements.timelineTrack.innerHTML = "";
+                elements.timelineEmpty.classList.remove("hidden");
+            }
+
+            renderMetricPanel();
+            renderRewardPanel();
+            updateDocumentTitle();
+        }
+
+        function renderMetricPanel() {
+            elements.headerEpisode.textContent = pad(state.episodeCounter);
+            elements.headerStep.textContent = pad(state.stepCount);
+            elements.stepTerminal.textContent = `${makeProgressBar(state.stepCount, state.maxSteps)}  ${pad(state.stepCount)} / ${state.maxSteps}`;
+            elements.rewardTerminal.textContent = formatNumber(state.reward);
+            elements.rewardTerminal.classList.remove("positive", "negative");
+            void elements.rewardTerminal.offsetWidth;
+            if (state.reward > 0) {
+                elements.rewardTerminal.classList.add("positive");
+            } else if (state.reward < 0) {
+                elements.rewardTerminal.classList.add("negative");
+            }
+            elements.cumTerminal.textContent = formatNumber(state.cumulativeReward);
+            elements.rewardCurrent.textContent = formatNumber(state.cumulativeReward);
+            elements.rewardSteps.textContent = String(state.rewardHistory.length);
+            updateDocumentTitle();
+        }
+
+        function derivedBotProbability(observation) {
+            const degree = Number(observation[64] || 0);
+            const clustering = Number(observation[65] || 0);
+            const community = Number(observation[66] || 0);
+            const activity = Number(observation[67] || 0);
+            const embed = Math.max(0, Number(observation[0] || 0));
+            return clamp((degree * 0.35) + (activity * 0.28) + (community * 0.18) + ((1 - clustering) * 0.12) + (embed * 0.07), 0, 1);
+        }
+
+        function renderObservationInfo() {
+            const config = TASKS[state.selectedTask];
+            const rows = [];
+            for (const item of config.detailRows) {
+                let value = 0;
+                let indexLabel = "--";
+                if (item.derived === "bot_prob_est") {
+                    value = derivedBotProbability(state.currentObservation);
+                    indexLabel = "D";
+                } else {
+                    value = Number(state.currentObservation[item.index] || 0);
+                    indexLabel = item.index;
+                }
+                rows.push(`
+                    <div class="obs-row">
+                        <div class="obs-index">${indexLabel}</div>
+                        <div class="obs-name">${item.name}</div>
+                        <div class="obs-value">${value.toFixed(4)}</div>
+                    </div>
+                `);
+            }
+            elements.obsList.innerHTML = rows.join("");
+        }
+
+        function renderDiagnostics() {
+            const info = state.currentInfo || {};
+            const diagnostics = [
+                { key: "task", value: state.selectedTask },
+                { key: "entity_id", value: info.entity_id ?? "n/a" },
+                { key: "ground_truth", value: info.ground_truth ?? "n/a" },
+                { key: "legitimacy", value: Number(info.legitimacy_score ?? 0).toFixed(4) },
+                { key: "collateral", value: info.collateral_count ?? info.real_removed ?? 0 },
+                { key: "success", value: info.task_success === undefined ? "n/a" : String(Boolean(info.task_success)).toUpperCase() }
+            ];
+
+            if (state.selectedTask === "task_spam") {
+                diagnostics.push({ key: "queue", value: `${info.queue_position ?? 0} / ${info.queue_length ?? state.maxSteps}` });
+            }
+
+            if (state.selectedTask === "task_misinfo") {
+                diagnostics.push({ key: "hop_count", value: info.hop_count ?? 0 });
+                diagnostics.push({ key: "post_id", value: info.post_id ?? info.entity_id ?? 0 });
+            }
+
+            if (state.selectedTask === "task_cib") {
+                diagnostics.push({ key: "bots_removed", value: info.bots_removed ?? 0 });
+                diagnostics.push({ key: "bots_remaining", value: info.bots_remaining ?? 0 });
+            }
+
+            elements.diagGrid.innerHTML = diagnostics.slice(0, 8).map((item) => `
+                <div class="diag-item">
+                    <div class="diag-key">${item.key}</div>
+                    <div class="diag-value">${item.value}</div>
+                </div>
+            `).join("");
+        }
+
+        function appendTimelineEntry(entry) {
+            state.timeline.push(entry);
+            const node = document.createElement("div");
+            node.className = "timeline-block";
+            node.style.background = ACTIONS[entry.action] ? ACTIONS[entry.action].color : "#1f1f1f";
+            node.style.setProperty("--reward-scale", `${clamp(Math.abs(entry.reward) * 12, 10, 100)}%`);
+            node.dataset.step = entry.step;
+            node.dataset.action = entry.actionName;
+            node.dataset.reward = formatNumber(entry.reward);
+            node.dataset.done = entry.done ? "TRUE" : "FALSE";
+            node.addEventListener("mouseenter", showTooltipForBlock);
+            node.addEventListener("mousemove", moveTooltip);
+            node.addEventListener("mouseleave", hideTooltip);
+            elements.timelineTrack.appendChild(node);
+            elements.timelineTrack.scrollLeft = elements.timelineTrack.scrollWidth;
+            elements.timelineEmpty.classList.add("hidden");
+            elements.timelineCount.textContent = String(state.timeline.length);
+            elements.timelineDone.textContent = String(state.timeline.filter((item) => item.done).length);
+            elements.timelineReward.textContent = formatNumber(entry.reward);
+        }
+
+        function showTooltipForBlock(event) {
+            const target = event.currentTarget;
+            elements.tooltip.innerHTML = `STEP ${target.dataset.step}<br>ACTION ${String(target.dataset.action).toUpperCase()}<br>REWARD ${target.dataset.reward}<br>DONE ${target.dataset.done}`;
+            elements.tooltip.classList.add("visible");
+            moveTooltip(event);
+        }
+
+        function moveTooltip(event) {
+            elements.tooltip.style.left = `${event.clientX + 16}px`;
+            elements.tooltip.style.top = `${event.clientY + 16}px`;
+        }
+
+        function hideTooltip() {
+            elements.tooltip.classList.remove("visible");
+        }
+
+        function fitCanvas(canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            const width = Math.max(1, Math.round(rect.width * dpr));
+            const height = Math.max(1, Math.round(rect.height * dpr));
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+            }
+            const context = canvas.getContext("2d");
+            context.setTransform(dpr, 0, 0, dpr, 0, 0);
+            return { context, width: rect.width, height: rect.height };
+        }
+
+        function drawObservationChart() {
+            const { context, width, height } = fitCanvas(elements.observationCanvas);
+            context.clearRect(0, 0, width, height);
+
+            const padding = { top: 18, right: 18, bottom: 22, left: 18 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+            const hasNegative = state.currentObservation.some((value) => value < 0);
+            const baseline = hasNegative ? padding.top + chartHeight * 0.52 : padding.top + chartHeight;
+
+            context.strokeStyle = "rgba(0, 255, 136, 0.12)";
+            context.lineWidth = 1;
+            for (let i = 0; i <= 4; i += 1) {
+                const y = padding.top + (chartHeight / 4) * i;
+                context.beginPath();
+                context.moveTo(padding.left, y);
+                context.lineTo(width - padding.right, y);
+                context.stroke();
+            }
+
+            context.strokeStyle = "rgba(255, 255, 255, 0.15)";
+            context.beginPath();
+            context.moveTo(padding.left, baseline);
+            context.lineTo(width - padding.right, baseline);
+            context.stroke();
+
+            const total = state.animatedObservation.length;
+            const step = chartWidth / total;
+            const barWidth = Math.max(2, step - 2);
+
+            for (let i = 0; i < total; i += 1) {
+                const target = Number(state.currentObservation[i] || 0);
+                const current = Number(state.animatedObservation[i] || 0);
+                state.animatedObservation[i] = current + (target - current) * 0.14;
+                const value = state.animatedObservation[i];
+
+                let color = "rgba(255, 92, 92, 0.85)";
+                if (value > 0.5) {
+                    color = "rgba(0, 255, 136, 0.9)";
+                } else if (value >= 0.2) {
+                    color = "rgba(255, 216, 77, 0.92)";
+                }
+
+                const x = padding.left + (i * step);
+                const positiveHeight = hasNegative
+                    ? Math.max(0, value) * (baseline - padding.top)
+                    : clamp(value, 0, 1) * chartHeight;
+                const negativeHeight = hasNegative ? Math.abs(Math.min(0, value)) * (padding.top + chartHeight - baseline) : 0;
+                const y = value >= 0 ? baseline - positiveHeight : baseline;
+                const h = value >= 0 ? positiveHeight : negativeHeight;
+
+                context.fillStyle = color;
+                context.fillRect(x, y, barWidth, Math.max(1, h));
+
+                if (i % 5 === 0) {
+                    context.fillStyle = "rgba(215, 255, 232, 0.55)";
+                    context.font = "10px JetBrains Mono";
+                    context.fillText(String(i), x, height - 8);
+                }
+            }
+
+            if (!state.envReady) {
+                context.fillStyle = "rgba(215, 255, 232, 0.6)";
+                context.font = "12px JetBrains Mono";
+                context.fillText("RESET ENVIRONMENT TO STREAM OBSERVATION VECTOR", padding.left, padding.top + 18);
+            }
+        }
+
+        function drawRewardChart() {
+            const { context, width, height } = fitCanvas(elements.rewardCanvas);
+            context.clearRect(0, 0, width, height);
+
+            const padding = { top: 18, right: 58, bottom: 22, left: 22 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+            const series = state.cumulativeHistory.length ? state.cumulativeHistory : [0];
+            const minValue = Math.min(0, ...series);
+            const maxValue = Math.max(0, ...series);
+            const span = Math.max(1, maxValue - minValue);
+
+            const yFor = (value) => padding.top + chartHeight - (((value - minValue) / span) * chartHeight);
+            const xFor = (index) => padding.left + ((chartWidth / Math.max(series.length - 1, 1)) * index);
+
+            context.strokeStyle = "rgba(255, 255, 255, 0.12)";
+            context.lineWidth = 1;
+            const zeroY = yFor(0);
+            context.beginPath();
+            context.moveTo(padding.left, zeroY);
+            context.lineTo(width - padding.right + 24, zeroY);
+            context.stroke();
+
+            for (let i = 0; i <= 4; i += 1) {
+                const y = padding.top + (chartHeight / 4) * i;
+                context.strokeStyle = "rgba(0, 255, 136, 0.08)";
+                context.beginPath();
+                context.moveTo(padding.left, y);
+                context.lineTo(width - padding.right + 24, y);
+                context.stroke();
+            }
+
+            if (series.length > 1) {
+                context.strokeStyle = "#00ff88";
+                context.lineWidth = 2;
+                context.beginPath();
+                context.moveTo(xFor(0), yFor(series[0]));
+                for (let i = 1; i < series.length; i += 1) {
+                    const prevX = xFor(i - 1);
+                    const prevY = yFor(series[i - 1]);
+                    const currX = xFor(i);
+                    const currY = yFor(series[i]);
+                    const midX = (prevX + currX) / 2;
+                    context.quadraticCurveTo(prevX, prevY, midX, (prevY + currY) / 2);
+                    if (i === series.length - 1) {
+                        context.quadraticCurveTo(currX, currY, currX, currY);
+                    }
+                }
+                context.stroke();
+            }
+
+            series.forEach((value, index) => {
+                const x = xFor(index);
+                const y = yFor(value);
+                context.fillStyle = "rgba(0, 255, 136, 0.95)";
+                context.beginPath();
+                context.arc(x, y, 2.6, 0, Math.PI * 2);
+                context.fill();
+            });
+
+            const current = series[series.length - 1] || 0;
+            context.fillStyle = "#d7ffe8";
+            context.font = "11px JetBrains Mono";
+            context.fillText(formatNumber(current), width - padding.right + 4, yFor(current) + 4);
+
+            if (!state.rewardHistory.length) {
+                context.fillStyle = "rgba(215, 255, 232, 0.6)";
+                context.fillText("STEP THROUGH AN EPISODE TO PLOT CUMULATIVE REWARD", padding.left, padding.top + 18);
+            }
+        }
+
+        function renderRewardPanel() {
+            elements.rewardCurrent.textContent = formatNumber(state.cumulativeReward);
+            elements.rewardSteps.textContent = String(state.rewardHistory.length);
+        }
+
+        function renderLoop() {
+            drawObservationChart();
+            drawRewardChart();
+            window.requestAnimationFrame(renderLoop);
+        }
+
+        function setTab(tabName) {
+            state.currentTab = tabName;
+            elements.tabButtons.forEach((button) => {
+                button.classList.toggle("active", button.dataset.tab === tabName);
+            });
+            Object.entries(elements.tabPanels).forEach(([name, panel]) => {
+                panel.classList.toggle("active", name === tabName);
+            });
+        }
+
+        function actionLabelFromId(actionId) {
+            return ACTIONS[actionId] ? ACTIONS[actionId].label : "UNKNOWN";
+        }
+
+        function chooseAutoAction() {
+            const obs = state.currentObservation;
+            if (state.selectedTask === "task_spam") {
+                const risk = ((1 - (obs[0] || 0)) * 0.16) + ((obs[1] || 0) * 0.30) + ((1 - (obs[2] || 0)) * 0.14) + ((obs[4] || 0) * 0.24) + ((1 - (obs[5] || 0)) * 0.16);
+                return risk > 0.55 ? 3 : 0;
+            }
+            if (state.selectedTask === "task_misinfo") {
+                const spread = Number(obs[0] || 0);
+                const factFlag = Number(obs[1] || 0);
+                const credibility = Number(obs[3] || 0);
+                const hop = Number(obs[4] || 0);
+                return (spread > 0.62 || credibility < 0.28 || (factFlag > 0.5 && hop > 0.4)) ? 3 : 2;
+            }
+            const suspicion = derivedBotProbability(obs);
+            return suspicion > 0.56 ? 3 : 0;
+        }
+
+        function scheduleAutoPlay() {
+            window.clearTimeout(state.autoTimer);
+            if (!state.autoEnabled || !state.envReady || state.loadingCount > 0 || state.overlayVisible) {
+                return;
+            }
+            state.autoTimer = window.setTimeout(async () => {
+                try {
+                    await stepEnvironment(chooseAutoAction());
+                } catch (error) {
+                    state.autoEnabled = false;
+                    elements.autoToggle.checked = false;
+                    updateAutoLabel();
+                }
+            }, state.autoDelay);
+        }
+
+        function updateAutoLabel() {
+            elements.autoLabel.textContent = state.autoEnabled ? "ON" : "OFF";
+            elements.speedValue.textContent = `${state.autoDelay}ms`;
+        }
+
+        function syncActionButtons() {
+            const disabled = !state.envReady || state.loadingCount > 0;
+            for (const button of elements.actionButtons) {
+                button.disabled = disabled;
+            }
+        }
+
+        async function resetEnvironment(fromOverlay = false) {
+            if (state.loadingCount > 0) {
+                return;
+            }
+            hideOverlay();
+            window.clearTimeout(state.autoTimer);
+            try {
+                const seed = Number(elements.seedInput.value || 42);
+                setStatus("RESETTING", `Bootstrapping ${state.selectedTask} with seed ${seed}.`);
+                const payload = await apiRequest("/reset", {
+                    method: "POST",
+                    body: {
+                        task: state.selectedTask,
+                        seed
+                    }
+                });
+                state.envReady = true;
+                state.episodeCounter += 1;
+                resetEpisodeState();
+                updateFromPayload(payload, "reset");
+                setStatus("ENV READY", `Environment ready. ${fromOverlay ? "Auto-reset complete." : "Action stack enabled."}`);
+                syncActionButtons();
+                if (state.autoEnabled) {
+                    scheduleAutoPlay();
+                }
+            } catch (error) {
+                setStatus("ERROR", error.message);
+                showToast(error.message);
+                throw error;
+            }
+        }
+
+        async function stepEnvironment(actionId) {
+            if (!state.envReady) {
+                showToast("Reset the environment before taking actions.");
+                return;
+            }
+            if (state.loadingCount > 0) {
+                return;
+            }
+            window.clearTimeout(state.autoTimer);
+            try {
+                setStatus("RUNNING", `Dispatching ${actionLabelFromId(actionId)} to ${state.selectedTask}.`);
+                const payload = await apiRequest("/step", {
+                    method: "POST",
+                    body: {
+                        task: state.selectedTask,
+                        action: Number(actionId)
+                    }
+                });
+                updateFromPayload(payload, "step");
+                elements.lastActionPrimary.textContent = actionLabelFromId(actionId);
+                elements.lastActionSecondary.textContent = `Step ${pad(state.stepCount)} · reward ${formatNumber(state.reward)} · ${payload.terminated || payload.truncated ? "terminal transition" : "episode live"}`;
+                if (payload.terminated || payload.truncated) {
+                    setStatus("EPISODE COMPLETE", "Terminal state reached. Auto-reset armed.");
+                    state.envReady = false;
+                    syncActionButtons();
+                    showOverlay();
+                } else {
+                    setStatus("RUNNING", `Episode live. ${state.stepCount} steps recorded.`);
+                    scheduleAutoPlay();
+                }
+            } catch (error) {
+                setStatus("ERROR", error.message);
+                showToast(error.message);
+                throw error;
+            }
+        }
+
+        function showOverlay() {
+            state.overlayVisible = true;
+            elements.overlay.classList.add("visible");
+            elements.overlay.setAttribute("aria-hidden", "false");
+            elements.overlayReward.textContent = formatNumber(state.cumulativeReward);
+            elements.overlaySteps.textContent = pad(state.stepCount);
+            let countdown = 3;
+            elements.overlayCountdown.textContent = String(countdown);
+            window.clearTimeout(state.overlayTimer);
+            window.clearInterval(state.overlayCountdownTimer);
+            state.overlayCountdownTimer = window.setInterval(() => {
+                countdown -= 1;
+                if (countdown >= 0) {
+                    elements.overlayCountdown.textContent = String(countdown);
+                }
+            }, 1000);
+            state.overlayTimer = window.setTimeout(async () => {
+                try {
+                    await resetEnvironment(true);
+                } catch (error) {
+                    showToast(`Auto-reset failed: ${error.message}`);
+                }
+            }, 3000);
+        }
+
+        function hideOverlay() {
+            state.overlayVisible = false;
+            elements.overlay.classList.remove("visible");
+            elements.overlay.setAttribute("aria-hidden", "true");
+            window.clearTimeout(state.overlayTimer);
+            window.clearInterval(state.overlayCountdownTimer);
+        }
+
+        function updateFormulaText(formula = null) {
+            const activeFormula = formula || TASKS[state.selectedTask].scoreFormula;
+            elements.formulaText.textContent = `Score formula: ${activeFormula}`;
+        }
+
+        async function gradeCurrentTask() {
+            if (state.loadingCount > 0) {
+                return;
+            }
+            const previousStatus = state.status;
+            const previousMessage = elements.envStatusMessage.textContent;
+            try {
+                setStatus("GRADING", `Running grader for ${state.selectedTask}.`);
+                const result = await apiRequest(`/grade/${state.selectedTask}`);
+                const pct = clamp(Number(result.score || 0) * 100, 0, 100);
+                elements.gradeLarge.textContent = `${pct.toFixed(1)}%`;
+                elements.gradeFill.style.width = `${pct}%`;
+                elements.gradeSummary.textContent = `${state.selectedTask} · F1 ${Number(result.details?.f1 || 0).toFixed(4)} · Recall ${Number(result.details?.recall || 0).toFixed(4)} · Mean reward ${Number(result.details?.mean_reward || 0).toFixed(4)}`;
+                elements.gradeTable.classList.add("hidden");
+                elements.gradeTable.innerHTML = "";
+                updateFormulaText(result.score_formula);
+                setStatus(previousStatus, "Current task grade completed.");
+                elements.envStatusMessage.textContent = previousMessage;
+            } catch (error) {
+                setStatus("ERROR", error.message);
+                showToast(error.message);
+            }
+        }
+
+        async function gradeAllTasks() {
+            if (state.loadingCount > 0) {
+                return;
+            }
+            const previousStatus = state.status;
+            const previousMessage = elements.envStatusMessage.textContent;
+            try {
+                setStatus("GRADING", "Running full task grading sweep.");
+                const result = await apiRequest("/grade/all");
+                const combined = clamp(Number(result.combined_score || 0) * 100, 0, 100);
+                elements.gradeLarge.textContent = `${combined.toFixed(1)}%`;
+                elements.gradeFill.style.width = `${combined}%`;
+                elements.gradeSummary.textContent = `Combined normalized score across task_spam, task_misinfo, and task_cib.`;
+                const rows = ["task_spam", "task_misinfo", "task_cib", "combined_score"].map((key) => {
+                    const score = key === "combined_score" ? Number(result[key] || 0) : Number(result[key]?.score || 0);
+                    const label = key === "combined_score" ? "combined" : key;
+                    return `
+                        <div class="grade-row">
+                            <div>${label}</div>
+                            <div class="mini-track"><span style="width:${clamp(score * 100, 0, 100)}%"></span></div>
+                            <div>${(score * 100).toFixed(1)}%</div>
+                        </div>
+                    `;
+                }).join("");
+                elements.gradeTable.innerHTML = rows;
+                elements.gradeTable.classList.remove("hidden");
+                updateFormulaText("combined_score = average(task_spam, task_misinfo, task_cib)");
+                setStatus(previousStatus, "Full grading sweep completed.");
+                elements.envStatusMessage.textContent = previousMessage;
+            } catch (error) {
+                setStatus("ERROR", error.message);
+                showToast(error.message);
+            }
+        }
+
+        function onShortcut(event) {
+            const target = event.target;
+            const isEditable = target instanceof HTMLElement && (
+                target.tagName === "INPUT" ||
+                target.tagName === "TEXTAREA" ||
+                target.tagName === "SELECT"
+            );
+            if (isEditable) {
+                return;
+            }
+
+            if (event.code === "Digit1") {
+                event.preventDefault();
+                stepEnvironment(0);
+            } else if (event.code === "Digit2") {
+                event.preventDefault();
+                stepEnvironment(1);
+            } else if (event.code === "Digit3") {
+                event.preventDefault();
+                stepEnvironment(2);
+            } else if (event.code === "Digit4") {
+                event.preventDefault();
+                stepEnvironment(3);
+            } else if (event.code === "Digit5") {
+                event.preventDefault();
+                stepEnvironment(4);
+            } else if (event.code === "KeyR") {
+                event.preventDefault();
+                resetEnvironment();
+            } else if (event.code === "Space") {
+                event.preventDefault();
+                elements.autoToggle.checked = !elements.autoToggle.checked;
+                state.autoEnabled = elements.autoToggle.checked;
+                updateAutoLabel();
+                scheduleAutoPlay();
+            } else if (event.code === "KeyQ") {
+                event.preventDefault();
+                setTab("observation");
+            } else if (event.code === "KeyW" && window.innerWidth >= 768) {
+                event.preventDefault();
+                setTab("timeline");
+            } else if (event.code === "KeyE" && window.innerWidth >= 768) {
+                event.preventDefault();
+                setTab("reward");
+            } else if (event.code === "KeyG") {
+                event.preventDefault();
+                gradeCurrentTask();
+            }
+        }
+
+        async function checkHealth() {
+            try {
+                const response = await fetch("/healthz");
+                const payload = await safeJson(response);
+                if (!response.ok) {
+                    throw new Error(payload.detail || `HTTP ${response.status}`);
+                }
+                setServerStatus(true, response.headers.get("X-NEMESIS-Version"));
+            } catch (error) {
+                setServerStatus(false);
+            }
+        }
+
+        function bindEvents() {
+            document.querySelectorAll('input[name="task"]').forEach((input) => {
+                input.addEventListener("change", (event) => {
+                    hideOverlay();
+                    window.clearTimeout(state.autoTimer);
+                    selectTask(event.target.value);
+                    resetEpisodeState();
+                    setStatus("IDLE", `Task switched to ${event.target.value}. Reset to start a fresh episode.`);
+                    state.envReady = false;
+                    syncActionButtons();
+                });
+            });
+
+            elements.resetButton.addEventListener("click", () => resetEnvironment());
+            elements.actionButtons.forEach((button) => {
+                button.addEventListener("click", () => stepEnvironment(Number(button.dataset.action)));
+            });
+
+            elements.autoToggle.addEventListener("change", (event) => {
+                state.autoEnabled = event.target.checked;
+                updateAutoLabel();
+                if (!state.autoEnabled) {
+                    window.clearTimeout(state.autoTimer);
+                } else {
+                    scheduleAutoPlay();
+                }
+            });
+
+            elements.speedSlider.addEventListener("input", (event) => {
+                state.autoDelay = Number(event.target.value);
+                updateAutoLabel();
+                if (state.autoEnabled) {
+                    scheduleAutoPlay();
+                }
+            });
+
+            elements.tabButtons.forEach((button) => {
+                button.addEventListener("click", () => setTab(button.dataset.tab));
+            });
+
+            elements.gradeCurrentButton.addEventListener("click", gradeCurrentTask);
+            elements.gradeAllButton.addEventListener("click", gradeAllTasks);
+            elements.overlayResetButton.addEventListener("click", () => resetEnvironment(true));
+            document.addEventListener("keydown", onShortcut);
+            window.addEventListener("resize", () => {
+                if (window.innerWidth < 768) {
+                    setTab("observation");
+                }
+            });
+        }
+
+        function boot() {
+            bindEvents();
+            selectTask(state.selectedTask);
+            setStatus("IDLE", "Select a task and reset the environment to arm the action stack.");
+            syncActionButtons();
+            updateAutoLabel();
+            renderObservationInfo();
+            renderDiagnostics();
+            renderMetricPanel();
+            renderRewardPanel();
+            updateFormulaText();
+            renderLoop();
+            checkHealth();
+            window.setInterval(checkHealth, 15000);
+        }
+
+        boot();
+    </script>
+</body>
+</html>
