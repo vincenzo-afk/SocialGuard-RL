@@ -131,14 +131,22 @@ class TestFalsePositivePenalty:
     def test_fp_cost_scales_with_legitimacy(self, engine: RewardEngine) -> None:
         """Higher legitimacy → higher fp_cost."""
         bd_low = engine.compute(
-            action=ACTION_REMOVE, is_bot=False, legitimacy_score=0.2,
+            action=ACTION_WARN, is_bot=False, legitimacy_score=0.2,
             current_hop=0, allowed_actions=ALL_ACTIONS, escalation_count=0,
         )
         bd_high = engine.compute(
-            action=ACTION_REMOVE, is_bot=False, legitimacy_score=0.9,
+            action=ACTION_WARN, is_bot=False, legitimacy_score=0.9,
             current_hop=0, allowed_actions=ALL_ACTIONS, escalation_count=0,
         )
         assert bd_high.fp_cost > bd_low.fp_cost
+
+    def test_remove_real_user_fp_cost_is_zero(self, engine: RewardEngine) -> None:
+        """Hard removals should charge collateral_damage, not fp_cost."""
+        bd = engine.compute(
+            action=ACTION_REMOVE, is_bot=False, legitimacy_score=0.9,
+            current_hop=0, allowed_actions=ALL_ACTIONS, escalation_count=0,
+        )
+        assert bd.fp_cost == pytest.approx(0.0)
 
     def test_allow_real_user_no_fp_cost(self, engine: RewardEngine) -> None:
         """Allowing a real user is correct — fp_cost must be 0."""
@@ -316,11 +324,11 @@ class TestConfigCoefficients:
         cfg_high = {**DEFAULT_REWARD_CFG, "beta": 2.0}
 
         bd_low = RewardEngine(cfg_low).compute(
-            action=ACTION_REMOVE, is_bot=False, legitimacy_score=0.8,
+            action=ACTION_WARN, is_bot=False, legitimacy_score=0.8,
             current_hop=0, allowed_actions=ALL_ACTIONS, escalation_count=0,
         )
         bd_high = RewardEngine(cfg_high).compute(
-            action=ACTION_REMOVE, is_bot=False, legitimacy_score=0.8,
+            action=ACTION_WARN, is_bot=False, legitimacy_score=0.8,
             current_hop=0, allowed_actions=ALL_ACTIONS, escalation_count=0,
         )
         # Higher beta → more negative total

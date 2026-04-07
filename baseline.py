@@ -76,10 +76,12 @@ class BaselineAgent:
         self,
         high_threshold: float = DEFAULT_HIGH_THRESHOLD,
         mid_threshold: float = DEFAULT_MID_THRESHOLD,
+        task_name: str | None = None,
     ) -> None:
         """Initialise the baseline agent with decision thresholds."""
         self._high: float = high_threshold
         self._mid: float = mid_threshold
+        self._task_name: str | None = task_name
         logger.info(
             "BaselineAgent thresholds — remove>%.2f  warn>%.2f",
             self._high, self._mid,
@@ -123,6 +125,8 @@ class BaselineAgent:
 
     def _infer_task(self, obs: np.ndarray) -> str:
         """Infer active task from sparse padding patterns."""
+        if self._task_name:
+            return self._task_name
         if obs.shape[0] >= OBS_DIM and not np.any(np.abs(obs) > 1e-8):
             return "task_spam"
         if np.any(np.abs(obs[8:]) > 1e-8):
@@ -130,6 +134,10 @@ class BaselineAgent:
         if np.any(np.abs(obs[6:8]) > 1e-8):
             return "task_spam"
         return "task_misinfo"
+
+    def set_task_name(self, task_name: str) -> None:
+        """Pin the baseline policy to a concrete task when env context exists."""
+        self._task_name = str(task_name)
 
     def _score_task_misinfo(self, obs: np.ndarray) -> float:
         spread = float(np.clip(obs[IDX_SPREAD_RATE], 0.0, 1.0))
@@ -199,62 +207,28 @@ def run_evaluation(
     Returns:
         Dict with precision, recall, f1, mean_reward, mean_episode_length.
     """
-    tp_total: int = 0
-    fp_total: int = 0
-    fn_total: int = 0
-    rewards: list[float] = []
-    lengths: list[int] = []
+    from graders.grader import Grader
 
-    for ep in range(n_episodes):
-        obs, _ = env.reset()
-        ep_reward: float = 0.0
-        ep_steps: int = 0
-        terminated = truncated = False
-        ep_seen: set[Any] = set()
-        ep_hit: set[Any] = set()
-
-        while not (terminated or truncated):
-            action = agent.act(obs)
-            obs, reward, terminated, truncated, info = env.step(action)
-            ep_reward += reward
-            ep_steps += 1
-
-            gt = int(info["ground_truth"])
-            act = int(info["action_taken"])
-            entity_id = info.get("entity_id", ep_steps)
-            if gt == 1:
-                # Count a positive entity once per episode.
-                # For Task 2, both REMOVE and REDUCE_REACH are decisive positives.
-                ep_seen.add(entity_id)
-                if act in (ACTION_REMOVE, ACTION_REDUCE_REACH):
-                    ep_hit.add(entity_id)
-            elif gt == 0 and act == ACTION_REMOVE:
-                fp_total += 1
-
-        tp_total += len(ep_hit)
-        fn_total += len(ep_seen - ep_hit)
-
-        rewards.append(ep_reward)
-        lengths.append(ep_steps)
-        if (ep + 1) % 10 == 0:
-            logger.info("Episode %d/%d — reward=%.2f", ep + 1, n_episodes, ep_reward)
-
-    precision = tp_total / (tp_total + fp_total + 1e-9)
-    recall = tp_total / (tp_total + fn_total + 1e-9)
-    f1 = 2 * precision * recall / (precision + recall + 1e-9)
-
-    results: dict[str, Any] = {
-        "precision": round(precision, 4),
-        "recall": round(recall, 4),
-        "f1": round(f1, 4),
-        "mean_reward": round(float(np.mean(rewards)), 4),
-        "mean_episode_length": round(float(np.mean(lengths)), 1),
-        "n_episodes": n_episodes,
-        "tp": tp_total,
-        "fp": fp_total,
-        "fn": fn_total,
+    grader = Grader(env, n_episodes=n_episodes)
+    task_name = str(getattr(env, "_task_cfg", {}).get("name", "unknown"))
+    results = grader.evaluate(agent, agent_name="baseline")
+    if task_name in results["tasks"]:
+        return dict(results["tasks"][task_name])
+    if results["tasks"]:
+        return dict(next(iter(results["tasks"].values())))
+    return {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "mean_reward": 0.0,
+        "mean_episode_length": 0.0,
+        "time_to_detection": None,
+        "mean_collateral": 0.0,
+        "n_episodes": 0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
     }
-    return results
 
 
 def main() -> None:
@@ -279,9 +253,11 @@ def main() -> None:
     args = parser.parse_args()
 
     env = SocialGuardEnv(config_path=args.config)
+    task_name = str(load_config(args.config).get("task", {}).get("name", "task_spam"))
     agent = BaselineAgent(
         high_threshold=args.high_threshold,
         mid_threshold=args.mid_threshold,
+        task_name=task_name,
     )
     results = run_evaluation(agent, env, args.episodes)
     env.close()

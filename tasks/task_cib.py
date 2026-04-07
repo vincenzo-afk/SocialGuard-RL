@@ -226,6 +226,8 @@ class TaskCIB(BaseTask):
         Returns:
             Float32 array of shape (OBS_DIM,) = (68,).
         """
+        if self.is_done():
+            return pad_observation(np.zeros(TASK3_OBS_DIM, dtype=np.float32))
         return pad_observation(self._current_obs)
 
     def get_ground_truth(self) -> int:
@@ -358,6 +360,56 @@ class TaskCIB(BaseTask):
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _build_structural_embedding(
+        self,
+        node_id: int,
+        *,
+        attrs: dict[str, Any] | None = None,
+        graph_feats: dict[str, float] | None = None,
+    ) -> np.ndarray:
+        """Build a deterministic fallback embedding from node structure."""
+        if self._graph is None:
+            return np.zeros(self._embedding_dim, dtype=np.float32)
+
+        attrs = attrs or self._graph.get_node_attrs(node_id)
+        graph_feats = graph_feats or self._graph.get_graph_features(node_id)
+
+        vec = np.zeros(self._embedding_dim, dtype=np.float32)
+        features = np.array(
+            [
+                float(graph_feats.get("degree_centrality", 0.0)),
+                float(graph_feats.get("clustering_coefficient", 0.0)),
+                float(graph_feats.get("community_assignment", 0.0)),
+                float(graph_feats.get("posts_per_hour_normalized", 0.0)),
+                float(np.clip(attrs.get("legitimacy_score", 0.5), 0.0, 1.0)),
+                float(np.clip(attrs.get("account_age_days", 0.0) / 3650.0, 0.0, 1.0)),
+            ],
+            dtype=np.float32,
+        )
+        width = min(self._embedding_dim, features.shape[0])
+        vec[:width] = features[:width]
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+        return np.clip(vec, -1.0, 1.0)
+
+    def _compute_structural_embeddings(self) -> dict[int, np.ndarray]:
+        """Compute deterministic structural fallback embeddings for all nodes."""
+        if self._graph is None:
+            return {}
+
+        embeddings: dict[int, np.ndarray] = {}
+        for node in sorted(self._graph.graph.nodes()):
+            node_id = int(node)
+            attrs = self._graph.get_node_attrs(node_id)
+            graph_feats = self._graph.get_graph_features(node_id)
+            embeddings[node_id] = self._build_structural_embedding(
+                node_id,
+                attrs=attrs,
+                graph_feats=graph_feats,
+            )
+        return embeddings
+
 
     def _compute_embeddings_spectral(self) -> dict[int, np.ndarray]:
         """Compute spectral embeddings using normalized Laplacian eigenvectors.
@@ -381,7 +433,15 @@ class TaskCIB(BaseTask):
         G = self._graph.graph
         nodes = sorted(G.nodes())
         n = len(nodes)
+        if n == 0:
+            return {}
         k = min(self._embedding_dim, n - 2)
+        if n <= 2 or k < 1:
+            logger.info(
+                "Graph too small for spectral embeddings (n=%d); using structural fallback.",
+                n,
+            )
+            return self._compute_structural_embeddings()
 
         try:
             from scipy.sparse.linalg import eigsh
@@ -389,33 +449,11 @@ class TaskCIB(BaseTask):
             _, vecs = eigsh(L, k=k + 1, which='SM')
             vecs = vecs[:, 1 : k + 1].astype('float32')
         except Exception as exc:
-            logger.warning('Spectral embedding failed (%s); using structural fallback embeddings.', exc)
-            edge_signature = "|".join(
-                f"{int(min(u, v))}-{int(max(u, v))}" for u, v in sorted(G.edges())
+            logger.warning(
+                'Spectral embedding failed (%s); using structural fallback embeddings.',
+                exc,
             )
-            degree_signature = "|".join(
-                f"{int(node)}:{int(G.degree(node))}" for node in nodes
-            )
-            attr_signature = "|".join(
-                f"{int(node)}:{float(self._graph.get_node_attrs(int(node)).get('activity_score', 0.5)):.4f}"
-                for node in nodes
-            )
-            sig = hashlib.sha256(
-                f"{n}|{k}|{edge_signature}|{degree_signature}|{attr_signature}".encode("utf-8")
-            ).digest()
-            fallback_seed = int.from_bytes(sig[:4], byteorder="big", signed=False)
-            rng = np.random.RandomState(fallback_seed)
-            # Structural fallback: degree/activity/account-age/clustering + seeded projection.
-            base = np.zeros((n, 4), dtype=np.float32)
-            max_degree = max((G.degree(node) for node in nodes), default=1)
-            for i, node in enumerate(nodes):
-                attrs = self._graph.get_node_attrs(int(node))
-                base[i, 0] = float(G.degree(node) / max(max_degree, 1))
-                base[i, 1] = float(np.clip(attrs.get("activity_score", 0.5), 0.0, 1.0))
-                base[i, 2] = float(np.clip(attrs.get("account_age_days", 0.0) / 3650.0, 0.0, 1.0))
-                base[i, 3] = float(np.clip(nx.clustering(G, node), 0.0, 1.0))
-            proj = rng.randn(4, max(k, 1)).astype(np.float32)
-            vecs = (base @ proj).astype(np.float32)
+            return self._compute_structural_embeddings()
 
         if vecs.shape[1] < self._embedding_dim:
             pad = np.zeros((n, self._embedding_dim - vecs.shape[1]), dtype='float32')
@@ -455,14 +493,11 @@ class TaskCIB(BaseTask):
             from node2vec import Node2Vec
         except ImportError as exc:
             logger.error(
-                "node2vec is not installed; using zero embeddings for TaskCIB. "
+                "node2vec is not installed; using structural fallback embeddings for TaskCIB. "
                 "Install with: pip install node2vec. (%s)",
                 exc,
             )
-            return {
-                int(node): np.zeros(self._embedding_dim, dtype=np.float32)
-                for node in self._graph.graph.nodes()
-            }
+            return self._compute_structural_embeddings()
 
         logger.info("Computing node2vec embeddings (%d nodes)…", self._graph.num_nodes)
 
@@ -484,13 +519,10 @@ class TaskCIB(BaseTask):
             )
         except TypeError as exc:
             logger.error(
-                "node2vec.fit() signature mismatch; using zero embeddings. (%s)",
+                "node2vec.fit() signature mismatch; using structural fallback embeddings. (%s)",
                 exc,
             )
-            return {
-                int(node): np.zeros(self._embedding_dim, dtype=np.float32)
-                for node in self._graph.graph.nodes()
-            }
+            return self._compute_structural_embeddings()
 
         embeddings: dict[int, np.ndarray] = {}
         for node in self._graph.graph.nodes():
@@ -538,17 +570,30 @@ class TaskCIB(BaseTask):
                     "Embedding refresh failed (%d failure(s)); continuing with stale embeddings.",
                     self._embedding_refresh_failures,
                 )
+                if self._embedding_refresh_failures >= 3:
+                    logger.warning(
+                        "Embedding refresh has failed repeatedly; switching to structural embeddings."
+                    )
+                    self._embeddings = self._compute_structural_embeddings()
+                    self._embeddings_stale = False
+                    self._removed_since_embedding_refresh = 0
 
+        attrs = self._graph.get_node_attrs(node_id)
+        graph_feats = self._graph.get_graph_features(node_id)
         # Embedding block is always fixed-width (64) so graph features stay at 64..67.
         if node_id in self._embeddings:
             emb = self._embeddings[node_id]
         else:
             logger.warning(
-                "Missing embedding for node_id=%s (stale=%s); using zero vector fallback.",
+                "Missing embedding for node_id=%s (stale=%s); using structural fallback.",
                 node_id,
                 self._embeddings_stale,
             )
-            emb = np.zeros(self._embedding_dim, dtype=np.float32)
+            emb = self._build_structural_embedding(
+                node_id,
+                attrs=attrs,
+                graph_feats=graph_feats,
+            )
         if emb.shape[0] < TASK3_EMBEDDING_DIM:
             emb = np.pad(emb, (0, TASK3_EMBEDDING_DIM - emb.shape[0]), mode="constant")
         elif emb.shape[0] > TASK3_EMBEDDING_DIM:
@@ -562,7 +607,6 @@ class TaskCIB(BaseTask):
             emb = np.clip(emb, -1.0, 1.0)
 
         # 4 graph-level features
-        graph_feats = self._graph.get_graph_features(node_id)
         extra = np.array([
             graph_feats["degree_centrality"],
             graph_feats["clustering_coefficient"],
@@ -573,6 +617,5 @@ class TaskCIB(BaseTask):
         self._current_obs = np.concatenate([emb, extra]).astype(np.float32)
 
         # Ground truth and legitimacy for reward computation
-        attrs = self._graph.get_node_attrs(node_id)
         self._current_gt = int(attrs["is_bot"])
         self._current_legitimacy = float(attrs["legitimacy_score"])

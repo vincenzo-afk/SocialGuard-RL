@@ -133,7 +133,7 @@ def analyze_content_with_llama(
         }
 
     try:
-        import requests  # standard library in CPython; always available
+        import requests
     except ImportError:
         return {
             "risk_score": 0.5,

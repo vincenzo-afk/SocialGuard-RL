@@ -76,6 +76,11 @@ class Grader:
         for ep in range(self.n_episodes):
             obs, info = self.env.reset(seed=int(base_seed) + ep)
             task_name = info.get("task_name", "unknown")
+            if hasattr(agent, "set_task_name"):
+                try:
+                    agent.set_task_name(str(task_name))
+                except Exception:
+                    pass
             ep_reward: float = 0.0
             ep_steps: int = 0
             bots_seen: set[Any] = set()
@@ -113,7 +118,12 @@ class Grader:
                         bots_removed.add(entity_id)
                         if task_name == "task_misinfo":
                             metrics[task_name]["detection_times"].append(
-                                int(step_info.get("hop_count", step_info["episode_step"]))
+                                int(
+                                    step_info.get(
+                                        "pre_action_hop",
+                                        step_info.get("hop_count", step_info["episode_step"]),
+                                    )
+                                )
                             )
                         else:
                             metrics[task_name]["detection_times"].append(step_info["episode_step"])
@@ -154,8 +164,7 @@ class Grader:
             if raw_times:
                 time_to_detection = float(np.mean(raw_times))
             else:
-                fallback_ttd = float(np.mean(counts["lengths"])) if counts["lengths"] else 20.0
-                time_to_detection = min(fallback_ttd, 20.0)
+                time_to_detection = None
             
             collateral = counts["collateral"]
             mean_collateral = float(np.mean(collateral)) if collateral else 0.0
@@ -166,7 +175,9 @@ class Grader:
                 "f1": round(f1, 4),
                 "mean_reward": round(float(np.mean(counts["rewards"])), 4),
                 "mean_episode_length": round(float(np.mean(counts["lengths"])), 1),
-                "time_to_detection": round(time_to_detection, 1),
+                "time_to_detection": (
+                    round(time_to_detection, 1) if time_to_detection is not None else None
+                ),
                 "mean_collateral": round(mean_collateral, 2),
                 "collateral_threshold": (
                     float(np.mean(counts["collateral_thresholds"]))
@@ -195,12 +206,11 @@ class Grader:
         f1 = float(task_metrics.get("f1", 0.0))
         mean_reward = float(task_metrics.get("mean_reward", 0.0))
         mean_collateral = float(task_metrics.get("mean_collateral", 0.0))
-        time_to_detection = float(
-            task_metrics.get(
-                "time_to_detection",
-                task_metrics.get("mean_episode_length", max_hops),
-            )
-        )
+        raw_ttd = task_metrics.get("time_to_detection", None)
+        if raw_ttd is None:
+            time_to_detection = float(task_metrics.get("mean_episode_length", max_hops))
+        else:
+            time_to_detection = float(raw_ttd)
 
         if task_name == "task_spam":
             # score = 0.7 × F1 + 0.3 × sigmoid(mean_reward / 50.0)
@@ -249,6 +259,13 @@ def compare_agents(baseline_results: dict[str, Any], model_results: dict[str, An
             comparison[task_name] = {
                 "f1_delta": round(m_metrics["f1"] - b_metrics["f1"], 4),
                 "reward_delta": round(m_metrics["mean_reward"] - b_metrics["mean_reward"], 4),
-                "time_delta": round(m_metrics["time_to_detection"] - b_metrics["time_to_detection"], 1)
+                "time_delta": (
+                    round(m_metrics["time_to_detection"] - b_metrics["time_to_detection"], 1)
+                    if (
+                        m_metrics.get("time_to_detection") is not None
+                        and b_metrics.get("time_to_detection") is not None
+                    )
+                    else None
+                ),
             }
     return comparison

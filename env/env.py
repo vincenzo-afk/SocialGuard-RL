@@ -124,6 +124,7 @@ class SocialGuardEnv(gym.Env):
         self._cumulative_reward: float = 0.0
         self._decision_history: list[dict[str, Any]] = []
         self._episode_step: int = 0
+        self._is_done: bool = False
 
         logger.info(
             "SocialGuardEnv initialised — task=%s render_mode=%s",
@@ -153,6 +154,10 @@ class SocialGuardEnv(gym.Env):
         super().reset(seed=seed)
 
         effective_seed = seed if seed is not None else int(self._env_cfg.get("seed", 42))
+
+        # Rebuild the reward engine on reset so config overrides apply cleanly
+        # at episode boundaries without mutating an in-flight episode.
+        self._reward_engine = RewardEngine(self._reward_cfg)
 
         # Build the active task
         self._task = self._build_task()
@@ -304,6 +309,7 @@ class SocialGuardEnv(gym.Env):
         info: dict[str, Any] = {
             **task_info,
             "entity_id": pre_entity_id,
+            "pre_action_hop": current_hop,
             "ground_truth": gt,
             "action_taken": action,
             "action_name": ACTION_NAMES.get(action, "unknown"),
@@ -356,7 +362,7 @@ class SocialGuardEnv(gym.Env):
         """Merge config overrides into the env for subsequent resets.
 
         This is used by training curricula to progressively increase difficulty
-        without changing the observation/action spaces.
+        without mutating the active episode mid-flight.
         """
         if not overrides:
             return
@@ -375,24 +381,6 @@ class SocialGuardEnv(gym.Env):
         self._env_cfg = self._cfg.get("env", self._env_cfg)
         self._task_cfg = self._cfg.get("task", self._task_cfg)
         self._reward_cfg = self._cfg.get("reward", self._reward_cfg)
-        self._reward_engine = RewardEngine(self._reward_cfg)
-
-        # Best-effort: apply relevant overrides to an already-instantiated task.
-        if self._task is not None:
-            try:
-                env_patch = overrides.get("env", {})
-                if isinstance(env_patch, dict) and "max_steps" in env_patch and hasattr(self._task, "_max_steps"):
-                    self._task._max_steps = int(env_patch["max_steps"])
-                task_patch = overrides.get("task", {})
-                if isinstance(task_patch, dict) and "action_space" in task_patch and hasattr(self._task, "_allowed_actions"):
-                    self._task._allowed_actions = list(task_patch["action_space"])
-            except Exception:
-                pass
-            # Rebuild active task instance so new task config takes effect immediately.
-            try:
-                self._task = self._build_task()
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------
     # Custom public method
@@ -615,4 +603,3 @@ class MastodonEnv(SocialGuardEnv):
         }
         
         return obs, reward, terminated, truncated, info
-

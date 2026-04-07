@@ -12,6 +12,7 @@ task:
 graph:
   num_nodes: 500
   bot_cluster_size: 80
+  real_intra_density: 0.08
   intra_cluster_density: 0.4
   inter_cluster_density: 0.05
   embedding_dim: 64

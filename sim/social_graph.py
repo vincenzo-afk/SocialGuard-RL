@@ -42,6 +42,9 @@ class SocialGraph:
         self._bot_cluster_size: int = int(graph_cfg["bot_cluster_size"])
         self._intra_density: float = float(graph_cfg["intra_cluster_density"])
         self._inter_density: float = float(graph_cfg["inter_cluster_density"])
+        self._real_intra_density: float = float(
+            graph_cfg.get("real_intra_density", 0.08)
+        )
         self._embedding_dim: int = int(graph_cfg["embedding_dim"])
 
         if self._num_nodes < 2:
@@ -66,11 +69,14 @@ class SocialGraph:
         self._community_index_by_node: dict[int, int] = {}
         self._clustering_dirty: bool = True
         self._clustering_cache: dict[int, float] = {}
+        default_comm_interval = 50 if self._num_nodes >= 200 else 20
+        default_clustering_interval = 25 if self._num_nodes >= 200 else 10
         self._community_recompute_interval: int = max(
-            1, int(graph_cfg.get("community_recompute_interval", 20))
+            1, int(graph_cfg.get("community_recompute_interval", default_comm_interval))
         )
         self._clustering_recompute_interval: int = max(
-            1, int(graph_cfg.get("clustering_recompute_interval", 10))
+            1,
+            int(graph_cfg.get("clustering_recompute_interval", default_clustering_interval)),
         )
         self._removed_since_communities_refresh: int = 0
         self._removed_since_clustering_refresh: int = 0
@@ -247,6 +253,25 @@ class SocialGraph:
     def _ensure_communities_cache(self) -> None:
         if not self._communities_dirty:
             return
+        if self._graph.number_of_nodes() == 0:
+            self._communities_cache = []
+            self._community_index_by_node = {}
+            self._communities_dirty = False
+            return
+        if self._graph.number_of_nodes() == 1:
+            only_node = next(iter(self._graph.nodes()))
+            self._communities_cache = [frozenset({int(only_node)})]
+            self._community_index_by_node = {int(only_node): 0}
+            self._communities_dirty = False
+            return
+        if self._graph.number_of_edges() == 0:
+            nodes = sorted(int(node) for node in self._graph.nodes())
+            self._communities_cache = [frozenset({node}) for node in nodes]
+            self._community_index_by_node = {
+                node: idx for idx, node in enumerate(nodes)
+            }
+            self._communities_dirty = False
+            return
 
         communities = nx.community.greedy_modularity_communities(self._graph)
         # Stabilize ordering for reproducibility across runs/Python versions.
@@ -267,6 +292,10 @@ class SocialGraph:
     def _ensure_clustering_cache(self) -> None:
         if not self._clustering_dirty:
             return
+        if self._graph.number_of_nodes() == 0:
+            self._clustering_cache = {}
+            self._clustering_dirty = False
+            return
         coeffs = nx.clustering(self._graph)
         self._clustering_cache = {int(k): float(v) for k, v in coeffs.items()}
         self._clustering_dirty = False
@@ -286,7 +315,7 @@ class SocialGraph:
         # Build planted partition graph using stochastic block model
         sizes = [n_real, self._bot_cluster_size]
         p_matrix = [
-            [self._inter_density, self._inter_density],
+            [self._real_intra_density, self._inter_density],
             [self._inter_density, self._intra_density],
         ]
         sbm_graph = nx.stochastic_block_model(
