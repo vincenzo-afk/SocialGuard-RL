@@ -543,12 +543,28 @@ class TaskCIB(BaseTask):
         if node_id in self._embeddings:
             emb = self._embeddings[node_id]
         else:
+            # Bug #3 fix: use structural fallback instead of all-zeros.
+            # np.zeros() makes every missing-node obs identical, destroying CIB performance.
+            # Build a meaningful structural embedding from live graph features instead.
             logger.warning(
-                "Missing embedding for node_id=%s (stale=%s); using zero vector fallback.",
+                "Missing embedding for node_id=%s (stale=%s); using structural fallback.",
                 node_id,
                 self._embeddings_stale,
             )
-            emb = np.zeros(self._embedding_dim, dtype=np.float32)
+            graph_feats = self._graph.get_graph_features(node_id)
+            attrs = self._graph.get_node_attrs(node_id)
+            # 4-component structural signal, projected to embedding_dim via seeded random projection
+            degree_val   = float(graph_feats.get("degree_centrality", 0.0))
+            activity_val = float(attrs.get("activity_score", 0.5))
+            age_val      = float(min(attrs.get("account_age_days", 0.0) / 3650.0, 1.0))
+            clustering   = float(graph_feats.get("clustering_coefficient", 0.0))
+            base = np.array([degree_val, activity_val, age_val, clustering], dtype=np.float32)
+            rng_fallback = np.random.RandomState(int(node_id) & 0xFFFF)
+            proj = rng_fallback.randn(4, max(self._embedding_dim, 1)).astype(np.float32)
+            emb = np.clip((base @ proj).astype(np.float32), -1.0, 1.0)
+            norm = np.linalg.norm(emb)
+            if norm > 0:
+                emb = emb / norm
         if emb.shape[0] < TASK3_EMBEDDING_DIM:
             emb = np.pad(emb, (0, TASK3_EMBEDDING_DIM - emb.shape[0]), mode="constant")
         elif emb.shape[0] > TASK3_EMBEDDING_DIM:
