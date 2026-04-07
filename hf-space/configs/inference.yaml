@@ -1,0 +1,22 @@
+graph:
+  num_nodes: 100
+  bot_cluster_size: 20
+  intra_cluster_density: 0.35
+  inter_cluster_density: 0.05
+  embedding_dim: 64
+  embedding_method: "spectral"
+env:
+  max_steps: 50
+task:
+  name: task_cib
+  bot_ratio: 0.30
+  noise_level: 0.15
+  action_space: [0,1,2,3,4]
+  collateral_damage_threshold: 10
+reward:
+  alpha: 1.0
+  beta: 0.8
+  gamma: 1.5
+  delta: 0.3
+  epsilon: 0.1
+  speed_max_hops: 20
