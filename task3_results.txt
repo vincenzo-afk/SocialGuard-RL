@@ -1,0 +1,14 @@
+
+=== Baseline Agent Results ===
+  precision                : 0.0
+  recall                   : 0.0
+  f1                       : 0.0
+  mean_reward              : 0.0
+  mean_episode_length      : 500.0
+  time_to_detection        : None
+  mean_collateral          : 0.0
+  collateral_threshold     : 10.0
+  n_episodes               : 100
+  tp                       : 0
+  fp                       : 0
+  fn                       : 8000

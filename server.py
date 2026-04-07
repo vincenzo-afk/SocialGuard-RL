@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 import numpy as np
 import uvicorn
 import yaml
@@ -222,7 +222,8 @@ def step_env(req: StepRequest):
             raise HTTPException(status_code=400, detail="Call /reset before /step.")
         try:
             obs, reward, terminated, truncated, info = env.step(req.action)
-            _total_steps_served += 1
+            with _registry_lock:
+                _total_steps_served += 1
             _task_step_counts[req.task] = int(_task_step_counts.get(req.task, 0)) + 1
             return ObservationModel(
                 observation=obs.tolist(),
@@ -381,7 +382,11 @@ def metrics():
         lines.append(f'nemesis_env_step_count{{task="{task}"}} {int(_task_step_counts.get(task, 0))}')
     lines.append(f"nemesis_server_total_steps_served {int(_total_steps_served)}")
     lines.append(f"nemesis_server_uptime_seconds {int(max(0, time.time() - _server_started_at))}")
-    return "\n".join(lines) or "# no envs initialized"
+    return Response(content="\n".join(lines) or "# no envs initialized\n", media_type="text/plain")
+
+@app.get("/recent_calls", tags=["meta"])
+def recent_calls():
+    return list(_recent_calls)
 
 
 if __name__ == "__main__":

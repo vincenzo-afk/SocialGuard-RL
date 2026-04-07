@@ -998,8 +998,13 @@ Training: PPO · γ=0.99 · ent_coef=0.01 · n_steps=2048 · batch=64
                 interval_ms = int(max(50.0, 1000.0 / max(float(auto_speed), 1.0)))
                 current_tick = st_autorefresh(interval=interval_ms, key="episode_autoplay")
                 if st.session_state.get("last_autoplay_tick") != current_tick:
-                    st.session_state.last_autoplay_tick = current_tick
-                    step_agent(env, agent)
+                    try:
+                        step_agent(env, agent)
+                    except Exception as e:
+                        st.error(str(e))
+                        st.session_state.running = False
+                    finally:
+                        st.session_state.last_autoplay_tick = current_tick
                     st.rerun()
 
 
