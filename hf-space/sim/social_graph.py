@@ -42,6 +42,9 @@ class SocialGraph:
         self._bot_cluster_size: int = int(graph_cfg["bot_cluster_size"])
         self._intra_density: float = float(graph_cfg["intra_cluster_density"])
         self._inter_density: float = float(graph_cfg["inter_cluster_density"])
+        self._real_intra_density: float = float(
+            graph_cfg.get("real_intra_density", 0.08)
+        )
         self._embedding_dim: int = int(graph_cfg["embedding_dim"])
 
         if self._num_nodes < 2:
@@ -247,6 +250,17 @@ class SocialGraph:
     def _ensure_communities_cache(self) -> None:
         if not self._communities_dirty:
             return
+        if self._graph.number_of_nodes() == 0:
+            self._communities_cache = []
+            self._community_index_by_node = {}
+            self._communities_dirty = False
+            return
+        if self._graph.number_of_nodes() == 1:
+            only = next(iter(self._graph.nodes()))
+            self._communities_cache = [frozenset({int(only)})]
+            self._community_index_by_node = {int(only): 0}
+            self._communities_dirty = False
+            return
 
         communities = nx.community.greedy_modularity_communities(self._graph)
         # Stabilize ordering for reproducibility across runs/Python versions.
@@ -286,7 +300,7 @@ class SocialGraph:
         # Build planted partition graph using stochastic block model
         sizes = [n_real, self._bot_cluster_size]
         p_matrix = [
-            [self._inter_density, self._inter_density],
+            [self._real_intra_density, self._inter_density],
             [self._inter_density, self._intra_density],
         ]
         sbm_graph = nx.stochastic_block_model(

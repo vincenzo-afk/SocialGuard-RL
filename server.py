@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 import numpy as np
@@ -63,14 +63,12 @@ def get_env_and_lock(task_name: str) -> tuple[SocialGuardEnv, threading.Lock]:
             status_code=400,
             detail=f"Unknown task '{task_name}'. Valid: {list(TASK_CONFIG_MAP.keys())}",
         )
-    env = _envs.get(task_name)
-    if env is not None:
-        return env, _locks[task_name]
+    if task_name in _envs and task_name in _locks:
+        return _envs[task_name], _locks[task_name]
 
     with _registry_lock:
-        env = _envs.get(task_name)
-        if env is not None:
-            return env, _locks[task_name]
+        if task_name in _envs and task_name in _locks:
+            return _envs[task_name], _locks[task_name]
 
         lock = _locks.setdefault(task_name, threading.Lock())
         try:
@@ -194,7 +192,9 @@ def root():
 
 
 @app.post("/reset", response_model=ObservationModel, tags=["env"])
-def reset_env(req: ResetRequest):
+def reset_env(req: Optional[ResetRequest] = Body(default=None)):
+    if req is None:
+        req = ResetRequest()
     env, lock = get_env_and_lock(req.task)
     with lock:
         try:
