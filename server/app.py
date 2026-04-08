@@ -95,7 +95,7 @@ def _score_formula(task_name: str) -> str:
     return SCORE_FORMULA_MAP.get(task_name, "F1")
 
 
-def _round_optional(value: Any, digits: int) -> float | None:
+def _round_optional(value: Any, digits: int) -> Optional[float]:
     if value is None:
         return None
     return round(float(value), digits)
@@ -433,5 +433,9 @@ def _grade_worker(task_name: str, n_episodes: int, seed: int, out_queue: mp.Queu
         out_queue.put({"ok": False, "error": str(exc)})
 
 
-if __name__ == "__main__":
+def main() -> None:
     uvicorn.run(app, host="0.0.0.0", port=7860)
+
+
+if __name__ == "__main__":
+    main()

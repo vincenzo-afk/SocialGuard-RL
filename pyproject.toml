@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "OpenEnv-compatible RL environment for social media integrity moderation."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
   { name = "SocialGuard-RL Team" }
 ]
@@ -16,6 +16,7 @@ dependencies = [
   "fastapi>=0.100.0",
   "uvicorn>=0.22.0",
   "pydantic>=2.0.0",
+  "openenv-core>=0.2.0",
   "numpy>=1.24.0,<2.0",
   "gymnasium>=0.29.0,<1.0",
   "networkx>=3.0,<4.0",
@@ -24,5 +25,11 @@ dependencies = [
   "openai>=1.0.0",
 ]
 
+[project.scripts]
+server = "server.app:main"
+
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["server*"]
