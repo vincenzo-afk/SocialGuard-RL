@@ -38,4 +38,4 @@ EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:7860/healthz || exit 1
 
 # Command to run the OpenEnv server
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
