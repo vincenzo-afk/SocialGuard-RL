@@ -123,7 +123,12 @@ class Grader:
                         bots_removed.add(entity_id)
                         if task_name == "task_misinfo":
                             metrics[task_name]["detection_times"].append(
-                                int(step_info.get("hop_count", step_info["episode_step"]))
+                                int(
+                                    step_info.get(
+                                        "pre_action_hop",
+                                        step_info.get("hop_count", step_info["episode_step"]),
+                                    )
+                                )
                             )
                         else:
                             metrics[task_name]["detection_times"].append(step_info["episode_step"])
