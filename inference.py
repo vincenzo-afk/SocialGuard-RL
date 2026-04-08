@@ -125,6 +125,16 @@ def emit_end(success: bool, steps: int, rewards: list[float], score: float = 0.0
     )
 
 
+def _strict_unit_score_from_rewards(rewards: list[float]) -> float:
+    """Return a score strictly inside (0, 1) for OpenEnv validators."""
+    if not rewards:
+        return 0.5
+    mean_reward = float(np.mean(rewards))
+    sigmoid = 1.0 / (1.0 + float(np.exp(-mean_reward / 25.0)))
+    eps = 1e-3
+    return float(np.clip(sigmoid, eps, 1.0 - eps))
+
+
 # ---------------------------------------------------------------------------
 # Timeout handler
 # ---------------------------------------------------------------------------
@@ -222,7 +232,7 @@ def run_task(
             except Exception:
                 pass
         
-        score = float(np.sum(all_rewards)) if all_rewards else 0.0
+        score = _strict_unit_score_from_rewards(all_rewards)
         emit_end(success, step_count, all_rewards or [0.0], score=score)
 
 

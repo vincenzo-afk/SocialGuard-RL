@@ -223,17 +223,19 @@ class Grader:
         else:
             time_to_detection = float(raw_ttd)
 
+        eps = 1e-3
+
         if task_name == "task_spam":
             # score = 0.7 × F1 + 0.3 × sigmoid(mean_reward / 50.0)
             import math
             sig = 1.0 / (1.0 + math.exp(-mean_reward / 50.0))
-            return float(np.clip(0.7 * f1 + 0.3 * sig, 0.0, 1.0))
+            return float(np.clip(0.7 * f1 + 0.3 * sig, eps, 1.0 - eps))
 
         if task_name == "task_misinfo":
             # speed_score = 1.0 − (mean_detection_hop / max_hops)
             # score = 0.6 × F1 + 0.4 × max(0, speed_score)
             speed_score = max(0.0, 1.0 - (min(time_to_detection, float(max_hops)) / max_hops))
-            return float(np.clip(0.6 * f1 + 0.4 * speed_score, 0.0, 1.0))
+            return float(np.clip(0.6 * f1 + 0.4 * speed_score, eps, 1.0 - eps))
 
         if task_name == "task_cib":
             # bots_removed_pct approximated from tp / (tp + fn) = recall
@@ -242,10 +244,10 @@ class Grader:
             collateral_threshold = max(1.0, float(task_metrics.get("collateral_threshold", 10.0)))
             collateral_rate = min(mean_collateral / collateral_threshold, 1.0)
             collateral_penalty = min(collateral_rate * 2.0, 0.5)
-            return float(np.clip(0.5 * recall + 0.5 * f1 - collateral_penalty, 0.0, 1.0))
+            return float(np.clip(0.5 * recall + 0.5 * f1 - collateral_penalty, eps, 1.0 - eps))
 
         # Default: return raw F1
-        return float(np.clip(f1, 0.0, 1.0))
+        return float(np.clip(f1, eps, 1.0 - eps))
 
     def save_results(self, results: dict[str, Any], filepath: str) -> None:
         """Save grading results to a JSON file."""
