@@ -1,4 +1,4 @@
-# NEMESIS-RL — Python dependencies
+# SocialGuard-RL — Python dependencies
 # Pin minor versions; allow patch updates.
 
 # Core RL environment

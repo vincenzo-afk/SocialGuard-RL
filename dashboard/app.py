@@ -1,10 +1,10 @@
 """
-dashboard/app.py — NEMESIS-RL Streamlit Dashboard (v2)
+dashboard/app.py — SocialGuard-RL Streamlit Dashboard (v2)
 
 Full-featured dashboard showing:
-  - NEMESIS model architecture overview
+  - SocialGuard model architecture overview
   - Live flagged accounts stream with account ID, reason, confidence
-  - NEMESIS inference tab: per-step decisions with color-coded TP/FP table
+  - SocialGuard inference tab: per-step decisions with color-coded TP/FP table
   - Action probability bars per inference step
   - Learning curve charts from training_log.csv
   - Training controls (launch training cycle from UI)
@@ -52,7 +52,7 @@ except ImportError:
 
 st.set_page_config(
     layout="wide",
-    page_title="NEMESIS-RL",
+    page_title="SocialGuard-RL",
     page_icon="🛡️",
 )
 
@@ -91,9 +91,9 @@ st.markdown("""
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-NEMESIS_MODEL_PATH = "models/nemesis/final_model.zip"
+SocialGuard_MODEL_PATH = "models/socialguard/final_model.zip"
 TRAINING_LOG_PATH  = "training_log.csv"
-CHECKPOINT_DIR     = "models/nemesis/checkpoints"
+CHECKPOINT_DIR     = "models/socialguard/checkpoints"
 
 ACTION_EMOJI = {0: "✅ Allow", 1: "⚠️ Warn", 2: "🔒 Restrict", 3: "❌ Remove", 4: "🚨 Escalate"}
 REASON_EMOJI = {
@@ -173,7 +173,7 @@ def init_session_state() -> None:
         "terminated": False, "truncated": False,
         "ep_reward": 0.0, "cumulative_rewards": [], "episode_rewards": [],
         "log": [], "decision_log": {}, "tp": 0, "fp": 0, "last_breakdown": {},
-        "nemesis_records": [], "flagged_stream": [],
+        "socialguard_records": [], "flagged_stream": [],
         "train_running": False, "train_log_lines": [],
         "last_autoplay_tick": None,
     }
@@ -306,7 +306,7 @@ def _model_info_html() -> str:
     return """
 <div style="font-family:monospace;font-size:12px;background:#0f1117;color:#90caf9;
      padding:16px;border-radius:10px;border:1px solid #2d3044;line-height:1.8">
-<b style="color:#fff;font-size:14px">🧠 NemesisPolicy Architecture</b><br><br>
+<b style="color:#fff;font-size:14px">🧠 SocialGuardPolicy Architecture</b><br><br>
 <b style="color:#f9a825">Encoder: </b> Llama-4-Maverick-17B-128E-Instruct (HF API)<br>
 <b style="color:#f9a825">Fallback: </b> all-MiniLM-L6-v2 → FallbackProjection (5→384)<br>
 <b style="color:#f9a825">Input:   </b> 5 tabular dims + 384 embedding <b>= 389 dims</b><br><br>
@@ -374,11 +374,11 @@ def main() -> None:
             st.sidebar.error(f"Reset failed: {e}")
         st.rerun()
 
-    # NEMESIS model status in sidebar
+    # SocialGuard model status in sidebar
     st.sidebar.divider()
-    st.sidebar.markdown("### 🤖 NEMESIS Status")
-    if os.path.exists(NEMESIS_MODEL_PATH):
-        mtime = Path(NEMESIS_MODEL_PATH).stat().st_mtime
+    st.sidebar.markdown("### 🤖 SocialGuard Status")
+    if os.path.exists(SocialGuard_MODEL_PATH):
+        mtime = Path(SocialGuard_MODEL_PATH).stat().st_mtime
         t_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
         st.sidebar.success(f"✅ Model loaded\n`{t_str}`")
         ckpts = len(list(Path(CHECKPOINT_DIR).glob("*.zip"))) if Path(CHECKPOINT_DIR).exists() else 0
@@ -435,8 +435,8 @@ def main() -> None:
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
       <span style="font-size:36px">🛡️</span>
       <div>
-        <span style="font-size:26px;font-weight:800;color:#fff">NEMESIS-RL</span>
-        <span style="font-size:14px;color:#90caf9;margin-left:10px">NEMESIS Intelligence Platform</span>
+        <span style="font-size:26px;font-weight:800;color:#fff">SocialGuard-RL</span>
+        <span style="font-size:14px;color:#90caf9;margin-left:10px">SocialGuard Intelligence Platform</span>
       </div>
     </div>""", unsafe_allow_html=True)
 
@@ -493,7 +493,7 @@ def main() -> None:
     # ── Tabs ─────────────────────────────────────────────────────────────
     tabs = st.tabs([
         "🚨 Flagged Accounts",
-        "🤖 NEMESIS Live",
+        "🤖 SocialGuard Live",
         "📉 Learning Curve",
         "🏋️ Train Model",
         "📋 Decision Log",
@@ -504,7 +504,7 @@ def main() -> None:
         "🌍 Mastodon Live",
         "⚖️ Mastodon Statistics",
     ])
-    (tab_flagged, tab_nemesis, tab_learning, tab_train,
+    (tab_flagged, tab_socialguard, tab_learning, tab_train,
      tab_log, tab_graph, tab_rewards, tab_breakdown, tab_arch,
      tab_mastodon, tab_mastodon_stats) = tabs
 
@@ -548,12 +548,12 @@ def main() -> None:
                 st.dataframe(df_stream, use_container_width=True)
 
     # ═══════════════════════════════════════════════════════════════════
-    # 🤖 TAB 2 — NEMESIS Live Inference
+    # 🤖 TAB 2 — SocialGuard Live Inference
     # ═══════════════════════════════════════════════════════════════════
-    with tab_nemesis:
-        st.subheader("🤖 NEMESIS Neural Policy — Live Inference")
+    with tab_socialguard:
+        st.subheader("🤖 SocialGuard Neural Policy — Live Inference")
         st.markdown("""
-> Runs the **trained NEMESIS PPO policy** (NemesisPolicy backbone, 389-dim input)
+> Runs the **trained SocialGuard PPO policy** (SocialGuardPolicy backbone, 389-dim input)
 > on a fresh episode. The model calls **Llama-4-Maverick-17B-128E-Instruct** via
 > HuggingFace Inference API for semantic content encoding when `HF_TOKEN` is set.
 """)
@@ -566,26 +566,26 @@ def main() -> None:
             inf_config = st.selectbox("Config", ["configs/task1.yaml","configs/task2.yaml","configs/task3.yaml"], key="inf_cfg")
 
         run_col, llama_col = st.columns(2)
-        run_btn   = run_col.button("▶️ Run NEMESIS Inference", use_container_width=True, key="run_nem")
+        run_btn   = run_col.button("▶️ Run SocialGuard Inference", use_container_width=True, key="run_nem")
         llama_btn = llama_col.button("🦙 Analyze with Llama-4-Maverick", use_container_width=True, key="run_llama")
 
         if run_btn:
-            if not os.path.exists(NEMESIS_MODEL_PATH):
-                st.warning(f"No model at `{NEMESIS_MODEL_PATH}`. Train first (🏋️ tab).")
+            if not os.path.exists(SocialGuard_MODEL_PATH):
+                st.warning(f"No model at `{SocialGuard_MODEL_PATH}`. Train first (🏋️ tab).")
             else:
-                with st.spinner("Running NEMESIS inference…"):
+                with st.spinner("Running SocialGuard inference…"):
                     try:
                         from agent import run_inference_episode
-                        recs_list = st.session_state.get("nemesis_records", [])
+                        recs_list = st.session_state.get("socialguard_records", [])
                         recs_list.clear()
                         recs = run_inference_episode(
                             config_path=inf_config,
-                            model_path=NEMESIS_MODEL_PATH,
+                            model_path=SocialGuard_MODEL_PATH,
                             n_steps=n_steps,
                             deterministic=deterministic,
                             records_list=recs_list
                         )
-                        st.session_state["nemesis_records"] = recs
+                        st.session_state["socialguard_records"] = recs
                     except Exception as exc:
                         st.error(f"Inference error: {exc}")
 
@@ -625,14 +625,14 @@ def main() -> None:
             lc2.markdown(f"**Reasoning:** {reason}")
 
         # Inference records
-        records = st.session_state.get("nemesis_records", [])
+        records = st.session_state.get("socialguard_records", [])
         if records:
             m_tp  = sum(1 for r in records if r["prediction"] != "No Action" and r["ground_truth"] == "Bot")
             m_fp  = sum(1 for r in records if r["prediction"] != "No Action" and r["ground_truth"] == "Human")
             m_rew = sum(r["reward"] for r in records)
             avg_conf = np.mean([r["confidence"] for r in records])
 
-            st.success(f"NEMESIS ran {len(records)} steps — TP={m_tp}  FP={m_fp}  Total Reward={m_rew:.2f}  Avg Confidence={avg_conf:.3f}")
+            st.success(f"SocialGuard ran {len(records)} steps — TP={m_tp}  FP={m_fp}  Total Reward={m_rew:.2f}  Avg Confidence={avg_conf:.3f}")
 
             mc1, mc2, mc3, mc4, mc5 = st.columns(5)
             mc1.metric("Steps",          len(records))
@@ -688,13 +688,13 @@ def main() -> None:
             st.line_chart(cdf)
 
         elif not run_btn:
-            st.info("↑ Click **Run NEMESIS Inference** to see the model in action.")
+            st.info("↑ Click **Run SocialGuard Inference** to see the model in action.")
 
     # ═══════════════════════════════════════════════════════════════════
     # 📉 TAB 3 — Learning Curve
     # ═══════════════════════════════════════════════════════════════════
     with tab_learning:
-        st.subheader("📉 NEMESIS Learning Curve")
+        st.subheader("📉 SocialGuard Learning Curve")
         st.caption("From `training_log.csv`. TP rate ↑ and FP rate ↓ prove the model is learning.")
 
         lrefresh = st.button("🔄 Refresh", key="lc_refresh")
@@ -736,9 +736,9 @@ def main() -> None:
     # 🏋️ TAB 4 — Train Model
     # ═══════════════════════════════════════════════════════════════════
     with tab_train:
-        st.subheader("🏋️ Train NEMESIS Model")
+        st.subheader("🏋️ Train SocialGuard Model")
         st.markdown("""
-Train the **NemesisPolicy PPO** directly from the dashboard.
+Train the **SocialGuardPolicy PPO** directly from the dashboard.
 - Runs `python3 agent.py` in a subprocess
 - Checkpoints saved every 10,000 steps
 - Resumes from last checkpoint automatically
@@ -761,8 +761,8 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
             removed = 0
             for f in glob.glob(os.path.join(CHECKPOINT_DIR, "*.zip")):
                 os.remove(f); removed += 1
-            if os.path.exists(NEMESIS_MODEL_PATH):
-                os.remove(NEMESIS_MODEL_PATH); removed += 1
+            if os.path.exists(SocialGuard_MODEL_PATH):
+                os.remove(SocialGuard_MODEL_PATH); removed += 1
             st.success(f"Removed {removed} file(s). Next training will start fresh.")
 
         if start_train:
@@ -928,7 +928,7 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
     # 🧠 TAB 9 — Model Architecture
     # ═══════════════════════════════════════════════════════════════════
     with tab_arch:
-        st.subheader("🧠 NEMESIS Model Architecture")
+        st.subheader("🧠 SocialGuard Model Architecture")
         st.markdown(_model_info_html(), unsafe_allow_html=True)
 
         st.markdown('<p class="section-title">Action Space</p>', unsafe_allow_html=True)
@@ -967,7 +967,7 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
         if HAS_AUTOREFRESH and os.environ.get("MASTODON_ACCESS_TOKEN"):
             st_autorefresh(interval=5000, key="mastodon_refresh")
 
-        mrecords = st.session_state.get("nemesis_records", [])
+        mrecords = st.session_state.get("socialguard_records", [])
         if mrecords:
             recent = list(reversed(mrecords[-50:]))
             df_m = pd.DataFrame([{
@@ -989,14 +989,14 @@ Train the **NemesisPolicy PPO** directly from the dashboard.
                 
             st.dataframe(df_m.style.apply(_row_color, axis=1), use_container_width=True)
         else:
-            st.info("No Mastodon posts analyzed yet. Ensure MASTODON_ACCESS_TOKEN is set and run NEMESIS inference.")
+            st.info("No Mastodon posts analyzed yet. Ensure MASTODON_ACCESS_TOKEN is set and run SocialGuard inference.")
 
     # ═══════════════════════════════════════════════════════════════════
     # ⚖️ TAB 11 — Mastodon Statistics
     # ═══════════════════════════════════════════════════════════════════
     with tab_mastodon_stats:
         st.subheader("⚖️ Mastodon Statistics")
-        mrecords = st.session_state.get("nemesis_records", [])
+        mrecords = st.session_state.get("socialguard_records", [])
         if mrecords:
             cat_counts = {}
             total = len(mrecords)

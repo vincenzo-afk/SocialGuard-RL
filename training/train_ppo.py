@@ -1,5 +1,5 @@
 """
-training/train_ppo.py — PPO training entry point for NEMESIS-RL.
+training/train_ppo.py — PPO training entry point for SocialGuard-RL.
 
 Usage:
   python -m training.train_ppo --config configs/default.yaml --run_name ppo_task1
@@ -53,7 +53,7 @@ def load_config(default_path: str, task_path: str | None = None) -> dict[str, An
 
 def main() -> None:
     """Run PPO training pipeline."""
-    parser = argparse.ArgumentParser(description="Train PPO on NEMESIS-RL")
+    parser = argparse.ArgumentParser(description="Train PPO on SocialGuard-RL")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
     parser.add_argument("--task_config", type=str, default=None)
     parser.add_argument("--run_name", type=str, default="ppo_run")

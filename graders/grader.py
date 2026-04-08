@@ -1,5 +1,5 @@
 """
-graders/grader.py — Evaluation Engine for NEMESIS-RL.
+graders/grader.py — Evaluation Engine for SocialGuard-RL.
 
 Run evaluation episodes for a given policy and compute metrics:
 precision, recall, F1, mean reward, mean length, and time-to-detection.

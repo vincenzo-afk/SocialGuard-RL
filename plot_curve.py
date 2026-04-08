@@ -20,7 +20,7 @@ def generate_curve():
     # Plot 1: TP vs FP
     ax1.plot(df["episode"], df["tp_rate"], 'o-', color="#4caf50", linewidth=3, markersize=8, label="True Positive Rate (↑)")
     ax1.plot(df["episode"], df["fp_rate"], 'o-', color="#ef5350", linewidth=3, markersize=8, label="False Positive Rate (↓)")
-    ax1.set_title("NEMESIS-RL: Detection Performance", fontsize=16, fontweight='bold', pad=15)
+    ax1.set_title("SocialGuard-RL: Detection Performance", fontsize=16, fontweight='bold', pad=15)
     ax1.set_xlabel("Training Episodes", fontweight='bold')
     ax1.set_ylabel("Rate", fontweight='bold')
     ax1.legend(loc="center right", facecolor="#1a1d27", edgecolor="#2d3044", fontsize=12)
@@ -28,7 +28,7 @@ def generate_curve():
     
     # Plot 2: Entropy
     ax2.plot(df["episode"], df["policy_entropy"], 'o-', color="#ce93d8", linewidth=3, markersize=8, label="Policy Entropy (↓)")
-    ax2.set_title("NEMESIS-RL: Policy Convergence", fontsize=16, fontweight='bold', pad=15)
+    ax2.set_title("SocialGuard-RL: Policy Convergence", fontsize=16, fontweight='bold', pad=15)
     ax2.set_xlabel("Training Episodes", fontweight='bold')
     ax2.set_ylabel("Entropy", fontweight='bold')
     ax2.legend(loc="upper right", facecolor="#1a1d27", edgecolor="#2d3044", fontsize=12)

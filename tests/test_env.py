@@ -1,5 +1,5 @@
 """
-tests/test_env.py — Env API correctness tests for NEMESIS-RL (Phase 2).
+tests/test_env.py — Env API correctness tests for SocialGuard-RL (Phase 2).
 
 Test categories:
 - reset() returns valid (obs, info) matching the observation space

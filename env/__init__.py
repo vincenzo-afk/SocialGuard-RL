@@ -1,1 +1,1 @@
-"""env package — NEMESIS-RL gymnasium environment."""
+"""env package — SocialGuard-RL gymnasium environment."""

@@ -1,5 +1,5 @@
 """
-env/spaces.py — Observation and action space definitions for NEMESIS-RL.
+env/spaces.py — Observation and action space definitions for SocialGuard-RL.
 
 All feature name constants and space dimensions are defined here.
 Every other module imports from this file — no magic numbers elsewhere.
@@ -124,7 +124,7 @@ _LOW[:TASK3_EMBEDDING_DIM] = -1.0
 
 
 class ObservationSpace(spaces.Box):
-    """Unified observation space for all NEMESIS-RL tasks.
+    """Unified observation space for all SocialGuard-RL tasks.
 
     Shape is always (OBS_DIM,) = (68,).  Tasks with fewer features pad the
     remaining dimensions with zeros.  This guarantees the SB3 policy network

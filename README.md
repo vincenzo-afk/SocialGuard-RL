@@ -1,14 +1,14 @@
-# 🛡️ NEMESIS-RL
+# 🛡️ SocialGuard-RL
 
 ### *Train AI agents to moderate social media — at scale, in real time, with Llama.*
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![HuggingFace Space](https://img.shields.io/badge/🤗%20HuggingFace-Space-orange)](https://huggingface.co/spaces/vincenzo-afk/NEMESIS-RL)
+[![HuggingFace Space](https://img.shields.io/badge/🤗%20HuggingFace-Space-orange)](https://huggingface.co/spaces/vincenzo-afk/SocialGuard-RL)
 [![OpenEnv Compatible](https://img.shields.io/badge/OpenEnv-compatible-green)](openenv.yaml)
 [![Llama Powered](https://img.shields.io/badge/🦙%20Llama-4%20Maverick-purple)](https://huggingface.co/meta-llama/Llama-4-Maverick-17B-128E-Instruct)
 
-> **Meta invests $13 billion per year into AI infrastructure.** NEMESIS-RL is the training ground that makes that investment pay off — a production-grade, OpenEnv-compliant reinforcement learning environment where Llama-based agents learn to make real-time moderation decisions across three escalating difficulty levels: spam, misinformation, and coordinated inauthentic behavior.
+> **Meta invests $13 billion per year into AI infrastructure.** SocialGuard-RL is the training ground that makes that investment pay off — a production-grade, OpenEnv-compliant reinforcement learning environment where Llama-based agents learn to make real-time moderation decisions across three escalating difficulty levels: spam, misinformation, and coordinated inauthentic behavior.
 
 ---
 
@@ -16,13 +16,13 @@
 
 Social media moderation is one of the hardest sequential decision problems in AI. Meta processes **billions of posts per day** across Facebook, Instagram, and Threads, each requiring a real-time judgment call: allow, warn, restrict, remove, or escalate to a human reviewer. Static classifiers fail because moderation is **not an independent-decision problem** — removing a bot early stops a network attack; waiting for more evidence lets the campaign spread. Acting on node A cascades through the social graph to nodes B, C, and D.
 
-**NEMESIS-RL frames this correctly, as a sequential decision problem under uncertainty** — exactly the problem class where RL has outperformed classical ML at scale (protein folding, chip placement, game-playing). This environment is the training infrastructure that lets Llama-based agents learn that nuanced tradeoff.
+**SocialGuard-RL frames this correctly, as a sequential decision problem under uncertainty** — exactly the problem class where RL has outperformed classical ML at scale (protein folding, chip placement, game-playing). This environment is the training infrastructure that lets Llama-based agents learn that nuanced tradeoff.
 
 ---
 
 ## What It Does
 
-NEMESIS-RL exposes a Gymnasium-compatible RL environment over a clean REST API, fully compliant with the OpenEnv specification. An agent sends a `POST /step` with an integer action (0–4) and receives an observation, a scalar reward, a termination flag, and a structured info dict. The grader at `GET /grade/{task}` runs 10 deterministic evaluation episodes and returns a normalized score in `[0.0, 1.0]`.
+SocialGuard-RL exposes a Gymnasium-compatible RL environment over a clean REST API, fully compliant with the OpenEnv specification. An agent sends a `POST /step` with an integer action (0–4) and receives an observation, a scalar reward, a termination flag, and a structured info dict. The grader at `GET /grade/{task}` runs 10 deterministic evaluation episodes and returns a normalized score in `[0.0, 1.0]`.
 
 ### Three Task Tracks
 
@@ -35,7 +35,7 @@ NEMESIS-RL exposes a Gymnasium-compatible RL environment over a clean REST API, 
 ### Agent Types
 
 - **`BaselineAgent`** (`baseline.py`) — Deterministic rule-based heuristic using suspicion score thresholds. This is the performance floor the RL agent must beat.
-- **`NemesisPolicy`** (`model.py`) — Custom SB3 `ActorCriticPolicy` with `NemesisMlpExtractor`: 5 tabular dims + 384-dim sentence embedding (all-MiniLM-L6-v2 locally; Llama-4-Maverick-17B via HuggingFace Inference API when `HF_TOKEN` is set) → 389-dim input → [512 → 256 → 128] FC backbone → actor/critic heads.
+- **`SocialGuardPolicy`** (`model.py`) — Custom SB3 `ActorCriticPolicy` with `SocialGuardMlpExtractor`: 5 tabular dims + 384-dim sentence embedding (all-MiniLM-L6-v2 locally; Llama-4-Maverick-17B via HuggingFace Inference API when `HF_TOKEN` is set) → 389-dim input → [512 → 256 → 128] FC backbone → actor/critic heads.
 - **`LLMAgent`** (`inference.py`) — Calls any OpenAI-compatible endpoint (e.g., HuggingFace Inference API with Llama-4-Maverick) to pick an action from the observation JSON. Runs all 3 tasks end-to-end in < 20 minutes.
 
 ---
@@ -44,7 +44,7 @@ NEMESIS-RL exposes a Gymnasium-compatible RL environment over a clean REST API, 
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        NEMESIS-RL                           │
+│                        SocialGuard-RL                           │
 │                                                                  │
 │  ┌──────────┐   POST /reset    ┌─────────────────────────────┐  │
 │  │          │ ───────────────► │      SocialGuardEnv         │  │
@@ -64,7 +64,7 @@ NEMESIS-RL exposes a Gymnasium-compatible RL environment over a clean REST API, 
 │                                  │  └─────────────────────┘    │  │
 │  ┌──────────────────────────┐  └─────────────────────────────┘  │
 │  │  Streamlit Dashboard     │                                    │
-│  │  - NEMESIS Live Inference│  ┌─────────────────────────────┐  │
+│  │  - SocialGuard Live Inference│  ┌─────────────────────────────┐  │
 │  │  - Learning Curve Charts │  │  Social Graph (NetworkX)    │  │
 │  │  - Network Graph (pyvis) │  │  Planted-partition model    │  │
 │  │  - Reward Breakdown      │  │  node2vec / spectral embeds │  │
@@ -101,19 +101,19 @@ All tasks share a fixed `Box(float32, shape=(68,))` observation vector. Tasks wi
 ### Docker (recommended)
 
 ```bash
-docker build -t NEMESIS-RL .
+docker build -t SocialGuard-RL .
 docker run -p 7860:7860 \
   -e HF_TOKEN="hf_your_token_here" \
   -e MODEL_NAME="meta-llama/Llama-4-Maverick-17B-128E-Instruct" \
   -e API_BASE_URL="https://api-inference.huggingface.co/v1" \
-  NEMESIS-RL
+  SocialGuard-RL
 ```
 
 ### Local
 
 ```bash
-git clone https://github.com/vincenzo-afk/NEMESIS-RL.git
-cd NEMESIS-RL
+git clone https://github.com/vincenzo-afk/SocialGuard-RL.git
+cd SocialGuard-RL
 pip install -r requirements.txt
 
 # Start the OpenEnv server
@@ -154,7 +154,7 @@ python inference.py
 
 Stdout format (required by OpenEnv):
 ```
-[START] task=task_spam env=NEMESIS-RL model=meta-llama/Llama-4-Maverick-17B-128E-Instruct
+[START] task=task_spam env=SocialGuard-RL model=meta-llama/Llama-4-Maverick-17B-128E-Instruct
 [STEP]  step=1 action=allow reward=0.00 done=false error=null
 [STEP]  step=2 action=remove reward=1.28 done=false error=null
 ...
@@ -189,7 +189,7 @@ python training/train_ppo.py --config configs/task3.yaml --run_name ppo_cib --cu
 | `task_misinfo` | 1.00 | 1.00 | 1.00 | 0.8 | **1.00** |
 | `task_cib` | 0.00 | 0.00 | 0.00 | 0.0 | **0.00** |
 
-### NEMESIS PPO Agent Training Progress (from `training_log.csv`)
+### SocialGuard PPO Agent Training Progress (from `training_log.csv`)
 
 | Cycle | Episodes | TP Rate | FP Rate | Mean Reward | Policy Entropy |
 |-------|----------|---------|---------|-------------|---------------|
@@ -207,7 +207,7 @@ TP rate rises from 0.52 → **0.93** (+79%). FP rate drops from 0.28 → **0.02*
 
 Meta's content moderation teams process **hundreds of billions of content decisions per year** across Facebook, Instagram, WhatsApp, and Threads. The challenge is not binary classification — it is sequential policy under adversarial conditions: bot networks adapt, misinformation mutates, and coordinated campaigns evolve their tactics faster than human reviewers can respond.
 
-NEMESIS-RL is purpose-built to be the simulation layer that trains the next generation of Meta Llama-powered moderation agents:
+SocialGuard-RL is purpose-built to be the simulation layer that trains the next generation of Meta Llama-powered moderation agents:
 
 **Llama-4-Maverick as the Policy Network.** `inference.py` uses the OpenAI client interface to call any Llama endpoint. The `LLMAgent` class formats the 68-dim observation vector as a JSON prompt, calls `meta-llama/Llama-4-Maverick-17B-128E-Instruct` via the HuggingFace Inference API, and parses the action (0–4) from the response. Drop in Meta's internal endpoint and the infrastructure is ready.
 
@@ -222,7 +222,7 @@ NEMESIS-RL is purpose-built to be the simulation layer that trains the next gene
 
 **Drop-in Training Infrastructure.** The Gymnasium API, Stable-Baselines3 compatibility, Docker container, and OpenEnv REST interface mean any team can spin this up on Meta's internal compute, swap in their own model checkpoint, and run curriculum-scheduled training on progressively harder graph sizes — exactly the scaling curriculum needed to produce a robust policy.
 
-> *"AI is the defining technology of our time. We're going to invest heavily in it."* — Mark Zuckerberg, 2024. NEMESIS-RL is the training environment that turns that investment into a safer platform.
+> *"AI is the defining technology of our time. We're going to invest heavily in it."* — Mark Zuckerberg, 2024. SocialGuard-RL is the training environment that turns that investment into a safer platform.
 
 ---
 
@@ -251,14 +251,14 @@ All coefficients are YAML-configurable — no magic numbers in code.
 ## Project Structure
 
 ```
-NEMESIS-RL/
+SocialGuard-RL/
 │
 ├── inference.py             # OpenAI-client inference script (Llama integration)
 ├── server.py                # FastAPI OpenEnv HTTP server
 ├── baseline.py              # Rule-based heuristic agent (benchmark)
 ├── evaluate.py              # Baseline vs trained model comparison
-├── agent.py                 # NEMESIS-RL training agent + inference runner
-├── model.py                 # NemesisPolicy, NemesisMlpExtractor, Llama API call
+├── agent.py                 # SocialGuard-RL training agent + inference runner
+├── model.py                 # SocialGuardPolicy, SocialGuardMlpExtractor, Llama API call
 ├── openenv.yaml             # OpenEnv metadata + task registry
 │
 ├── env/
@@ -303,7 +303,7 @@ NEMESIS-RL/
 │   ├── test_grader.py       # Grader normalized_score bounds + baseline smoke
 │   ├── test_training.py     # PPO/DQN smoke tests
 │   ├── test_curriculum.py   # Curriculum override tests
-│   └── test_nemesis.py      # NemesisNetBackbone + NemesisMlpExtractor + PPO tests
+│   └── test_socialguard.py      # SocialGuardNetBackbone + SocialGuardMlpExtractor + PPO tests
 │
 ├── configs/
 │   ├── default.yaml         # Base defaults — all keys documented
@@ -362,7 +362,7 @@ NEMESIS-RL/
 ### Phase 8 — Dashboard ✅
 - [x] `dashboard/app.py` — 11-tab Streamlit dashboard
 - [x] `dashboard/graph_view.py` — Pyvis network + decision log injection
-- [x] NEMESIS PPO training from UI + live checkpoint browser
+- [x] SocialGuard PPO training from UI + live checkpoint browser
 
 ### Phase 9 — Hardening 🔲
 - [ ] Full test coverage for `grader.py`, `callbacks.py`, `baseline.py`
@@ -413,9 +413,9 @@ Built by **vincenzo-afk** for the **Meta Llama Impact Hackathon 2026**.
 ```bibtex
 @software{socialguard_rl_2026,
   author  = {vincenzo-afk},
-  title   = {NEMESIS-RL: An OpenEnv Environment for Social Media Integrity Moderation},
+  title   = {SocialGuard-RL: An OpenEnv Environment for Social Media Integrity Moderation},
   year    = {2026},
-  url     = {https://huggingface.co/spaces/vincenzo-afk/NEMESIS-RL},
+  url     = {https://huggingface.co/spaces/vincenzo-afk/SocialGuard-RL},
   note    = {Meta Llama Impact Hackathon 2026}
 }
 ```

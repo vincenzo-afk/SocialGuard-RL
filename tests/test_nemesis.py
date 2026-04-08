@@ -1,12 +1,12 @@
 """
-tests/test_nemesis.py — Tests for NEMESIS-RL model and agent infrastructure.
+tests/test_socialguard.py — Tests for SocialGuard-RL model and agent infrastructure.
 
 Verifies:
-  - NemesisMlpExtractor forward pass (shape, dtypes)
-  - NemesisPolicy can be built and run through SB3 PPO
+  - SocialGuardMlpExtractor forward pass (shape, dtypes)
+  - SocialGuardPolicy can be built and run through SB3 PPO
   - predict_action returns valid outputs
   - agent.py imports cleanly and _load_or_create_ppo returns a PPO
-  - NemesisMetricsCallback accumulates stats correctly
+  - SocialGuardMetricsCallback accumulates stats correctly
   - training_log CSV row format is valid
 """
 from __future__ import annotations
@@ -23,55 +23,55 @@ import torch
 # model.py tests
 # ---------------------------------------------------------------------------
 
-class TestNemesisNetBackbone:
+class TestSocialGuardNetBackbone:
     def test_forward_shape(self):
-        from model import NemesisNetBackbone, POLICY_INPUT_DIM
-        net = NemesisNetBackbone()
+        from model import SocialGuardNetBackbone, POLICY_INPUT_DIM
+        net = SocialGuardNetBackbone()
         x = torch.randn(8, POLICY_INPUT_DIM)
         out = net(x)
         assert out.shape == (8, 128), f"Expected (8, 128), got {out.shape}"
 
     def test_no_nan_in_output(self):
-        from model import NemesisNetBackbone, POLICY_INPUT_DIM
-        net = NemesisNetBackbone()
+        from model import SocialGuardNetBackbone, POLICY_INPUT_DIM
+        net = SocialGuardNetBackbone()
         x = torch.randn(4, POLICY_INPUT_DIM)
         out = net(x)
         assert not torch.any(torch.isnan(out)), "NaN in backbone output"
 
 
-class TestNemesisMlpExtractor:
+class TestSocialGuardMlpExtractor:
     def test_features_dim(self):
-        from model import NemesisMlpExtractor
+        from model import SocialGuardMlpExtractor
         from gymnasium import spaces
         obs_space = spaces.Box(low=-1.0, high=1.0, shape=(68,), dtype=np.float32)
-        extractor = NemesisMlpExtractor(obs_space, features_dim=128)
+        extractor = SocialGuardMlpExtractor(obs_space, features_dim=128)
         assert extractor.features_dim == 128
 
     def test_forward_shape(self):
-        from model import NemesisMlpExtractor
+        from model import SocialGuardMlpExtractor
         from gymnasium import spaces
         obs_space = spaces.Box(low=-1.0, high=1.0, shape=(68,), dtype=np.float32)
-        extractor = NemesisMlpExtractor(obs_space, features_dim=128)
+        extractor = SocialGuardMlpExtractor(obs_space, features_dim=128)
         x = torch.randn(4, 68)
         out = extractor(x)
         assert out.shape == (4, 128), f"Expected (4, 128), got {out.shape}"
 
     def test_output_no_nan(self):
-        from model import NemesisMlpExtractor
+        from model import SocialGuardMlpExtractor
         from gymnasium import spaces
         obs_space = spaces.Box(low=-1.0, high=1.0, shape=(68,), dtype=np.float32)
-        extractor = NemesisMlpExtractor(obs_space, features_dim=128)
+        extractor = SocialGuardMlpExtractor(obs_space, features_dim=128)
         x = torch.zeros(2, 68)
         out = extractor(x)
         assert not torch.any(torch.isnan(out))
 
 
 class TestBuildPPO:
-    def test_build_ppo_with_nemesis_policy(self):
-        from model import build_ppo_with_nemesis_policy
+    def test_build_ppo_with_socialguard_policy(self):
+        from model import build_ppo_with_socialguard_policy
         from env.env import SocialGuardEnv
         env = SocialGuardEnv("configs/task1.yaml")
-        ppo = build_ppo_with_nemesis_policy(env, verbose=0)
+        ppo = build_ppo_with_socialguard_policy(env, verbose=0)
         assert ppo is not None
         assert ppo.policy is not None
         env.close()
@@ -79,10 +79,10 @@ class TestBuildPPO:
 
 class TestPredictAction:
     def test_predict_action_returns_valid_action(self):
-        from model import build_ppo_with_nemesis_policy, predict_action, N_ACTIONS
+        from model import build_ppo_with_socialguard_policy, predict_action, N_ACTIONS
         from env.env import SocialGuardEnv
         env = SocialGuardEnv("configs/task1.yaml")
-        ppo = build_ppo_with_nemesis_policy(env, verbose=0)
+        ppo = build_ppo_with_socialguard_policy(env, verbose=0)
         obs, _ = env.reset()
         action, confidence, probs = predict_action(ppo, obs, deterministic=True)
         assert 0 <= action < N_ACTIONS, f"Invalid action: {action}"
@@ -92,10 +92,10 @@ class TestPredictAction:
         env.close()
 
     def test_predict_action_stochastic(self):
-        from model import build_ppo_with_nemesis_policy, predict_action, N_ACTIONS
+        from model import build_ppo_with_socialguard_policy, predict_action, N_ACTIONS
         from env.env import SocialGuardEnv
         env = SocialGuardEnv("configs/task1.yaml")
-        ppo = build_ppo_with_nemesis_policy(env, verbose=0)
+        ppo = build_ppo_with_socialguard_policy(env, verbose=0)
         obs, _ = env.reset()
         action, conf, probs = predict_action(ppo, obs, deterministic=False)
         assert 0 <= action < N_ACTIONS
@@ -127,7 +127,7 @@ class TestAgentImports:
         import agent
         assert hasattr(agent, "train_cycle")
         assert hasattr(agent, "run_inference_episode")
-        assert hasattr(agent, "NemesisMetricsCallback")
+        assert hasattr(agent, "SocialGuardMetricsCallback")
         assert hasattr(agent, "TIMESTEPS_PER_CYCLE")
 
     def test_timesteps_per_cycle(self):
@@ -148,14 +148,14 @@ class TestLoadOrCreatePPO:
         env.close()
 
     def test_loads_checkpoint_when_present(self):
-        from agent import _load_or_create_ppo, build_ppo_with_nemesis_policy
+        from agent import _load_or_create_ppo, build_ppo_with_socialguard_policy
         from stable_baselines3.common.vec_env import DummyVecEnv
         from env.env import SocialGuardEnv
         env = DummyVecEnv([lambda: SocialGuardEnv("configs/task1.yaml")])
         with tempfile.TemporaryDirectory() as tmpdir:
             # Save a model as checkpoint
-            ppo = build_ppo_with_nemesis_policy(DummyVecEnv([lambda: SocialGuardEnv("configs/task1.yaml")]), verbose=0)
-            ckpt_path = os.path.join(tmpdir, "nemesis_rl_10steps.zip")
+            ppo = build_ppo_with_socialguard_policy(DummyVecEnv([lambda: SocialGuardEnv("configs/task1.yaml")]), verbose=0)
+            ckpt_path = os.path.join(tmpdir, "socialguard_rl_10steps.zip")
             ppo.save(ckpt_path.replace(".zip", ""))
             # Now load_or_create should load it
             loaded = _load_or_create_ppo(env, tmpdir)
@@ -163,10 +163,10 @@ class TestLoadOrCreatePPO:
         env.close()
 
 
-class TestNemesisMetricsCallback:
+class TestSocialGuardMetricsCallback:
     def test_summary_empty(self):
-        from agent import NemesisMetricsCallback
-        cb = NemesisMetricsCallback()
+        from agent import SocialGuardMetricsCallback
+        cb = SocialGuardMetricsCallback()
         summary = cb.get_summary()
         assert summary["n_episodes"] == 0
         assert summary["mean_reward"] == 0.0

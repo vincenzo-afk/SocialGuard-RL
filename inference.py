@@ -1,5 +1,5 @@
 """
-inference.py — Mandatory OpenEnv inference script for NEMESIS-RL.
+inference.py — Mandatory OpenEnv inference script for SocialGuard-RL.
 
 Uses the OpenAI client to call an LLM as the moderation policy.
 Emits structured [START]/[STEP]/[END] lines to stdout.
@@ -47,7 +47,7 @@ TASK_CONFIGS = {
 
 # Per-task episode budget (seconds). Total must fit in 20 min.
 TASK_TIMEOUT_SECONDS = 300  # 5 min each; 3 tasks = 15 min max
-ENV_NAME = "NEMESIS-RL"
+ENV_NAME = "SocialGuard-RL"
 
 # Use spectral embeddings for fast inference on task_cib
 os.environ.setdefault("SOCIALGUARD_EMBEDDING_METHOD", "spectral")

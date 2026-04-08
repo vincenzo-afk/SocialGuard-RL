@@ -1,6 +1,6 @@
 # OpenEnv Metadata Registry
 version: "1.0"
-name: "NEMESIS-RL"
+name: "SocialGuard-RL"
 description: "A production-grade, OpenEnv-compliant reinforcement learning environment for social media integrity moderation."
 tags:
   - openenv

@@ -61,7 +61,7 @@ def apply_decision_log(base_html: str, decision_log: dict[int, dict] | None) -> 
 
     payload = json.dumps({str(int(k)): v for k, v in decision_log.items()})
     js = f"""
-// Apply decision-log node styling (injected by NEMESIS-RL)
+// Apply decision-log node styling (injected by SocialGuard-RL)
 try {{
   const decisionLog = {payload};
   const updates = [];
