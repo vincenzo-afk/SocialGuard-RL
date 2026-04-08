@@ -1,5 +1,5 @@
 """
-training/curriculum.py — Simple curriculum schedules for NEMESIS-RL.
+training/curriculum.py — Simple curriculum schedules for SocialGuard-RL.
 
 Curricula are implemented as a sequence of (timestep_threshold, overrides)
 where overrides are merged into `SocialGuardEnv` via `apply_overrides()`.

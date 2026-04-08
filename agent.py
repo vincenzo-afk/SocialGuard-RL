@@ -1,9 +1,9 @@
 """
-agent.py — NEMESIS-RL Training Agent
+agent.py — SocialGuard-RL Training Agent
 
-Real PPO training loop using the NemesisPolicy from model.py.
+Real PPO training loop using the SocialGuardPolicy from model.py.
 - Trains for 100,000 timesteps per call to `train_cycle()`.
-- Saves a checkpoint every 10,000 steps under `models/nemesis/checkpoints/`.
+- Saves a checkpoint every 10,000 steps under `models/socialguard/checkpoints/`.
 - On subsequent runs, automatically loads the latest checkpoint to continue learning.
 - Logs episode metrics to `training_log.csv` after every full training cycle.
 - Computes TP rate, FP rate, mean reward, and policy entropy for learning verification.
@@ -35,7 +35,7 @@ from stable_baselines3.common.type_aliases import GymEnv
 
 from env.env import SocialGuardEnv
 from model import (
-    build_ppo_with_nemesis_policy,
+    build_ppo_with_socialguard_policy,
     predict_action,
     ACTION_LABELS,
     N_ACTIONS,
@@ -48,11 +48,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 TIMESTEPS_PER_CYCLE: int = 100_000
 CHECKPOINT_FREQ: int = 10_000
-CHECKPOINT_DIR: str = "models/nemesis/checkpoints"
-FINAL_MODEL_PATH: str = "models/nemesis/final_model.zip"
+CHECKPOINT_DIR: str = "models/socialguard/checkpoints"
+FINAL_MODEL_PATH: str = "models/socialguard/final_model.zip"
 TRAINING_LOG_PATH: str = "training_log.csv"
 
-# Reward shaping (matches existing NEMESIS-RL conventions)
+# Reward shaping (matches existing SocialGuard-RL conventions)
 REWARD_TRUE_POSITIVE: float = 1.0    # correct removal
 REWARD_FALSE_POSITIVE: float = -0.5  # wrongly removed benign
 REWARD_MISSED_DETECTION: float = -1.0  # failed to remove malicious
@@ -63,7 +63,7 @@ REWARD_TRUE_NEGATIVE: float = 0.0    # correct allow
 # Custom Metrics Callback
 # ---------------------------------------------------------------------------
 
-class NemesisMetricsCallback(BaseCallback):
+class SocialGuardMetricsCallback(BaseCallback):
     """Tracks per-episode TP rate, FP rate, entropy, and mean reward."""
 
     def __init__(self, verbose: int = 0) -> None:
@@ -171,7 +171,7 @@ class NemesisMetricsCallback(BaseCallback):
 
 def _latest_checkpoint(ckpt_dir: str) -> Optional[str]:
     """Return path to the most recent .zip checkpoint, or None."""
-    pattern = os.path.join(ckpt_dir, "nemesis_rl_*steps.zip")
+    pattern = os.path.join(ckpt_dir, "socialguard_rl_*steps.zip")
     matches = sorted(glob.glob(pattern))
     return matches[-1] if matches else None
 
@@ -188,8 +188,8 @@ def _load_or_create_ppo(env: GymEnv, ckpt_dir: str) -> Any:
             return model
         except Exception as exc:
             logger.warning("Failed to load checkpoint %s: %s — building fresh.", latest, exc)
-    logger.info("No checkpoint found — building fresh NEMESIS model.")
-    return build_ppo_with_nemesis_policy(env, verbose=1)
+    logger.info("No checkpoint found — building fresh SocialGuard model.")
+    return build_ppo_with_socialguard_policy(env, verbose=1)
 
 
 # ---------------------------------------------------------------------------
@@ -280,16 +280,16 @@ def train_cycle(
     model = _load_or_create_ppo(env, checkpoint_dir)
 
     # Build callbacks
-    metrics_cb = NemesisMetricsCallback()
+    metrics_cb = SocialGuardMetricsCallback()
     ckpt_cb = CheckpointCallback(
         save_freq=CHECKPOINT_FREQ,
         save_path=checkpoint_dir,
-        name_prefix="nemesis_rl",
+        name_prefix="socialguard_rl",
     )
 
     # Train
     logger.info(
-        "=== NEMESIS Train Cycle %d  steps=%d  config=%s ===",
+        "=== SocialGuard Train Cycle %d  steps=%d  config=%s ===",
         cycle,
         timesteps,
         config_path,
@@ -299,7 +299,7 @@ def train_cycle(
         total_timesteps=timesteps,
         callback=[ckpt_cb, metrics_cb],
         reset_num_timesteps=False,  # preserve global timestep counter
-        tb_log_name=f"nemesis_cycle_{cycle}",
+        tb_log_name=f"socialguard_cycle_{cycle}",
     )
     elapsed = time.time() - t0
 
@@ -355,7 +355,7 @@ def _get_reddit_posts(limit: int = 20) -> List[Dict[str, str]]:
         reddit = praw.Reddit(
             client_id=client_id,
             client_secret=client_secret,
-            user_agent="NEMESIS-RL-Agent/1.0"
+            user_agent="SocialGuard-RL-Agent/1.0"
         )
         posts = []
         for s in reddit.subreddit('all').new(limit=limit):
@@ -532,7 +532,7 @@ def run_inference_episode(
 
 def main() -> None:
     """CLI entry point."""
-    parser = argparse.ArgumentParser(description="NEMESIS-RL Agent — train or infer")
+    parser = argparse.ArgumentParser(description="SocialGuard-RL Agent — train or infer")
     parser.add_argument("--config", default="configs/task1.yaml", help="Task YAML config")
     parser.add_argument("--cycles", type=int, default=1, help="Number of 100k-step cycles")
     parser.add_argument("--device", default="auto", help="PyTorch device")
@@ -558,7 +558,7 @@ def main() -> None:
             model_path=FINAL_MODEL_PATH,
             n_steps=args.infer_steps,
         )
-        print(f"\n=== NEMESIS Inference ({len(records)} steps) ===")
+        print(f"\n=== SocialGuard Inference ({len(records)} steps) ===")
         for r in records:
             verdict = "✓" if r["prediction"] != "No Action" or r["ground_truth"] == "Human" else "✗"
             print(

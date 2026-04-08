@@ -17,3 +17,4 @@ venv/
 .venv/
 hf-space/.git
 hf-space/.git.bak
+hf-space/

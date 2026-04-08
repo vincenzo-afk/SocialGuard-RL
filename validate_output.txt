@@ -1,5 +1,5 @@
 
-=== NEMESIS-RL Pre-Submission Validator ===
+=== SocialGuard-RL Pre-Submission Validator ===
 
 [1/6] Building Docker image...
 scripts/pre_validate.sh: line 48: docker: command not found

@@ -1,5 +1,5 @@
 """
-dashboard/metrics_view.py — Reward and decision charts for NEMESIS-RL.
+dashboard/metrics_view.py — Reward and decision charts for SocialGuard-RL.
 
 Helper components for render lines and metric dashboards in Streamlit.
 """

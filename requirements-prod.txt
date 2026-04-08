@@ -1,4 +1,4 @@
-# NEMESIS-RL — production dependencies (no dev tools)
+# SocialGuard-RL — production dependencies (no dev tools)
 
 gymnasium>=0.29.0,<1.0
 numpy>=1.24.0,<2.0

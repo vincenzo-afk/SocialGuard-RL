@@ -1,1 +1,1 @@
-"""data package — synthetic graph fixtures for NEMESIS-RL."""
+"""data package — synthetic graph fixtures for SocialGuard-RL."""

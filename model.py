@@ -1,5 +1,5 @@
 """
-model.py — NEMESIS-RL Policy Network
+model.py — SocialGuard-RL Policy Network
 
 A real trainable neural network for moderation policy learning.
 
@@ -14,7 +14,7 @@ Architecture:
   - Three FC layers: (389 → 512 → 256 → 128) with ReLU + Dropout(0.3)
   - Output: 5 logits → actions (allow / warn / restrict / suspend / ban)
 
-Stable-Baselines3 integration via NemesisMlpExtractor, a custom features extractor
+Stable-Baselines3 integration via SocialGuardMlpExtractor, a custom features extractor
 that replaces the default MLP in the PPO policy.
 
 The 389-dim input is:
@@ -22,8 +22,8 @@ The 389-dim input is:
   - 5 dims: tabular features clipped from obs[0:5]
 
 Usage::
-    from model import NemesisPolicy, build_ppo_with_nemesis_policy
-    ppo = build_ppo_with_nemesis_policy(env)
+    from model import SocialGuardPolicy, build_ppo_with_socialguard_policy
+    ppo = build_ppo_with_socialguard_policy(env)
     ppo.learn(100_000)
 """
 from __future__ import annotations
@@ -219,7 +219,7 @@ class FallbackProjection(nn.Module):
 # Core Policy Network
 # ---------------------------------------------------------------------------
 
-class NemesisNetBackbone(nn.Module):
+class SocialGuardNetBackbone(nn.Module):
     """389 → [512 → 256 → 128] FC backbone (shared actor-critic trunk)."""
 
     def __init__(self, input_dim: int = POLICY_INPUT_DIM, dropout: float = 0.3) -> None:
@@ -250,12 +250,12 @@ class NemesisNetBackbone(nn.Module):
 # SB3 Custom Features Extractor
 # ---------------------------------------------------------------------------
 
-class NemesisMlpExtractor(BaseFeaturesExtractor):
+class SocialGuardMlpExtractor(BaseFeaturesExtractor):
     """SB3 BaseFeaturesExtractor that:
     1. Splits the 68-dim obs into tabular dims (0:5).
     2. Projects or encodes to a 384-dim embedding.
     3. Concatenates to form 389-dim input.
-    4. Passes through the NemesisNetBackbone → 128-dim features.
+    4. Passes through the SocialGuardNetBackbone → 128-dim features.
 
     The backbone is frozen during inference if `freeze_backbone=True`.
     """
@@ -269,14 +269,14 @@ class NemesisMlpExtractor(BaseFeaturesExtractor):
         super().__init__(observation_space, features_dim)
 
         self.fallback_projection = FallbackProjection()
-        self.backbone = NemesisNetBackbone(
+        self.backbone = SocialGuardNetBackbone(
             input_dim=POLICY_INPUT_DIM,
             dropout=dropout,
         )
         # Check if local sentence encoder is loadable
         self._has_local_encoder = _load_local_encoder() is not None
         logger.info(
-            "NemesisMlpExtractor: local_encoder=%s features_dim=%d",
+            "SocialGuardMlpExtractor: local_encoder=%s features_dim=%d",
             self._has_local_encoder,
             features_dim,
         )
@@ -318,8 +318,8 @@ class NemesisMlpExtractor(BaseFeaturesExtractor):
 # Full Policy (wraps SB3 ActorCriticPolicy)
 # ---------------------------------------------------------------------------
 
-class NemesisPolicy(ActorCriticPolicy):
-    """Custom SB3 ActorCriticPolicy wired to the NemesisMlpExtractor.
+class SocialGuardPolicy(ActorCriticPolicy):
+    """Custom SB3 ActorCriticPolicy wired to the SocialGuardMlpExtractor.
 
     Only the kwargs passthrough is overridden; everything else is inherited
     so PPO's training loop, entropy, value head, etc. all work normally.
@@ -334,7 +334,7 @@ class NemesisPolicy(ActorCriticPolicy):
         **kwargs: Any,
     ) -> None:
         # Inject our extractor
-        kwargs["features_extractor_class"] = NemesisMlpExtractor
+        kwargs["features_extractor_class"] = SocialGuardMlpExtractor
         kwargs["features_extractor_kwargs"] = {
             "features_dim": 128,
             "dropout": dropout,
@@ -353,7 +353,7 @@ class NemesisPolicy(ActorCriticPolicy):
 # PPO Factory
 # ---------------------------------------------------------------------------
 
-def build_ppo_with_nemesis_policy(
+def build_ppo_with_socialguard_policy(
     env,
     *,
     learning_rate: float = 3e-4,
@@ -366,7 +366,7 @@ def build_ppo_with_nemesis_policy(
     device: str = "auto",
     verbose: int = 1,
 ) -> PPO:
-    """Build and return a PPO model with the NEMESIS policy extractor.
+    """Build and return a PPO model with the SocialGuard policy extractor.
 
     Args:
         env: Gymnasium environment or VecEnv.
@@ -384,7 +384,7 @@ def build_ppo_with_nemesis_policy(
         Configured PPO model ready for .learn().
     """
     ppo = PPO(
-        policy=NemesisPolicy,
+        policy=SocialGuardPolicy,
         env=env,
         learning_rate=learning_rate,
         n_steps=n_steps,
@@ -399,7 +399,7 @@ def build_ppo_with_nemesis_policy(
         verbose=verbose,
     )
     logger.info(
-        "Built PPO with NemesisPolicy — device=%s obs_dim=68 policy_input=%d",
+        "Built PPO with SocialGuardPolicy — device=%s obs_dim=68 policy_input=%d",
         ppo.device,
         POLICY_INPUT_DIM,
     )
@@ -448,7 +448,7 @@ if __name__ == "__main__":
     from env.env import SocialGuardEnv
 
     env = SocialGuardEnv("configs/task1.yaml")
-    ppo = build_ppo_with_nemesis_policy(env, verbose=0)
+    ppo = build_ppo_with_socialguard_policy(env, verbose=0)
     obs, _ = env.reset()
     action, conf, probs = predict_action(ppo, obs)
     print(f"Test prediction — action={ACTION_LABELS[action]}({action})  conf={conf:.4f}")

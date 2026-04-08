@@ -1,5 +1,0 @@
--r requirements-prod.txt
-
-stable-baselines3>=2.0.0,<3.0
-torch>=2.0.0,<3.0
-node2vec>=0.4.6,<0.5

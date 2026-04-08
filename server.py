@@ -19,10 +19,10 @@ from env.models import ObservationModel, ResetRequest, StepRequest
 os.environ.setdefault("SOCIALGUARD_EMBEDDING_METHOD", "spectral")
 
 app = FastAPI(
-    title="NEMESIS-RL OpenEnv Server",
+    title="SocialGuard-RL OpenEnv Server",
     description="OpenEnv-compliant API for social media integrity moderation RL environment.",
     version="1.0.0",
-    contact={"name": "NEMESIS-RL"},
+    contact={"name": "SocialGuard-RL"},
     license_info={"name": "MIT"},
 )
 
@@ -144,7 +144,7 @@ async def track_recent_calls(request: Request, call_next):
     start = time.perf_counter()
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - start) * 1000.0
-    response.headers["X-NEMESIS-Version"] = app.version
+    response.headers["X-SocialGuard-Version"] = app.version
     _recent_calls.appendleft(
         {
             "method": request.method,
@@ -372,16 +372,16 @@ def grade_task(task_name: str, n_episodes: int = 10, seed: int = 42):
 def metrics():
     lines = []
     for task, env in _envs.items():
-        lines.append(f'nemesis_env_timestep{{task="{task}"}} {getattr(env, "_timestep", 0)}')
-        lines.append(f'nemesis_env_episode_step{{task="{task}"}} {getattr(env, "_episode_step", 0)}')
+        lines.append(f'socialguard_env_timestep{{task="{task}"}} {getattr(env, "_timestep", 0)}')
+        lines.append(f'socialguard_env_episode_step{{task="{task}"}} {getattr(env, "_episode_step", 0)}')
         lines.append(
-            f'nemesis_env_cumulative_reward{{task="{task}"}} {float(getattr(env, "_cumulative_reward", 0.0)):.4f}'
+            f'socialguard_env_cumulative_reward{{task="{task}"}} {float(getattr(env, "_cumulative_reward", 0.0)):.4f}'
         )
     for task in TASK_CONFIG_MAP:
-        lines.append(f'nemesis_env_episode_count{{task="{task}"}} {int(_task_reset_counts.get(task, 0))}')
-        lines.append(f'nemesis_env_step_count{{task="{task}"}} {int(_task_step_counts.get(task, 0))}')
-    lines.append(f"nemesis_server_total_steps_served {int(_total_steps_served)}")
-    lines.append(f"nemesis_server_uptime_seconds {int(max(0, time.time() - _server_started_at))}")
+        lines.append(f'socialguard_env_episode_count{{task="{task}"}} {int(_task_reset_counts.get(task, 0))}')
+        lines.append(f'socialguard_env_step_count{{task="{task}"}} {int(_task_step_counts.get(task, 0))}')
+    lines.append(f"socialguard_server_total_steps_served {int(_total_steps_served)}")
+    lines.append(f"socialguard_server_uptime_seconds {int(max(0, time.time() - _server_started_at))}")
     return Response(content="\n".join(lines) or "# no envs initialized\n", media_type="text/plain")
 
 @app.get("/recent_calls", tags=["meta"])
@@ -389,8 +389,6 @@ def recent_calls():
     return list(_recent_calls)
 
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
 def _grade_worker(task_name: str, n_episodes: int, seed: int, out_queue: mp.Queue) -> None:
     """Run grading in an isolated child process so timeouts can terminate cleanly."""
     try:
@@ -433,3 +431,7 @@ def _grade_worker(task_name: str, n_episodes: int, seed: int, out_queue: mp.Queu
             env.close()
     except Exception as exc:
         out_queue.put({"ok": False, "error": str(exc)})
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=7860)

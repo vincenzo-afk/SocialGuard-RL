@@ -1,4 +1,4 @@
-# NEMESIS-RL — Developer Blueprint
+# SocialGuard-RL — Developer Blueprint
 
 > A complete coding plan for building a production-grade reinforcement learning environment for social media integrity moderation.
 
@@ -23,7 +23,7 @@
 
 ## 1. Project Overview
 
-NEMESIS-RL is a **gym-compatible reinforcement learning environment** that simulates a live social media platform.
+SocialGuard-RL is a **gym-compatible reinforcement learning environment** that simulates a live social media platform.
 
 An AI agent plays the role of an automated integrity officer. It observes user behavior and network signals, takes moderation actions (`allow`, `warn`, `reduce_reach`, `remove`, `escalate`), and learns from the consequences via a multi-objective reward function.
 
@@ -87,7 +87,7 @@ None of this is learnable from a static labeled dataset.
 ## 3. Folder Structure
 
 ```
-NEMESIS-RL/
+SocialGuard-RL/
 │
 ├── env/
 │   ├── __init__.py
@@ -686,10 +686,10 @@ python evaluate.py --model checkpoints/ppo_task1.zip --task task_spam
 streamlit run dashboard/app.py
 
 # Docker
-docker build -t NEMESIS-RL .
-docker run -p 8501:8501 NEMESIS-RL
+docker build -t SocialGuard-RL .
+docker run -p 8501:8501 SocialGuard-RL
 ```
 
 ---
 
-*This document is the single source of truth for the NEMESIS-RL build. Update it when any contract, build order, or design decision changes.*
+*This document is the single source of truth for the SocialGuard-RL build. Update it when any contract, build order, or design decision changes.*

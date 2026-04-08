@@ -1,6 +1,6 @@
 # CHANGELOG
 
-All notable changes to NEMESIS-RL are recorded here.
+All notable changes to SocialGuard-RL are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
