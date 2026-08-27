@@ -1,421 +1,365 @@
-# 🛡️ SocialGuard-RL
+# SocialGuard-RL
 
-### *Train AI agents to moderate social media — at scale, in real time, with Llama.*
+> **A reproducible reinforcement-learning environment for social-media integrity moderation.**
 
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![HuggingFace Space](https://img.shields.io/badge/🤗%20HuggingFace-Space-orange)](https://huggingface.co/spaces/vincenzo-afk/SocialGuard-RL)
-[![OpenEnv Compatible](https://img.shields.io/badge/OpenEnv-compatible-green)](openenv.yaml)
-[![Llama Powered](https://img.shields.io/badge/🦙%20Llama-4%20Maverick-purple)](https://huggingface.co/meta-llama/Llama-4-Maverick-17B-128E-Instruct)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
+[![OpenEnv](https://img.shields.io/badge/OpenEnv-compatible-0f766e)](openenv.yaml)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Gymnasium](https://img.shields.io/badge/environment-Gymnasium-4b5563)](https://gymnasium.farama.org/)
 
-> **Meta invests $13 billion per year into AI infrastructure.** SocialGuard-RL is the training ground that makes that investment pay off — a production-grade, OpenEnv-compliant reinforcement learning environment where Llama-based agents learn to make real-time moderation decisions across three escalating difficulty levels: spam, misinformation, and coordinated inauthentic behavior.
+SocialGuard-RL provides synthetic, seeded environments for training and evaluating moderation policies as **sequential decision-makers**. Instead of treating each account or post as an isolated classification example, an agent observes a fixed-size state, chooses one of five moderation actions, receives a reward breakdown, and continues until the episode terminates or is truncated. The repository exposes the environment through both a Gymnasium-compatible Python interface and an OpenEnv-style FastAPI server.
 
----
+This project is intended for research, benchmarking, and responsible experimentation with synthetic data. It is **not** a production moderation system and does not make decisions about real users or real social-media content.
 
-## Why This Matters
+## Contents
 
-Social media moderation is one of the hardest sequential decision problems in AI. Meta processes **billions of posts per day** across Facebook, Instagram, and Threads, each requiring a real-time judgment call: allow, warn, restrict, remove, or escalate to a human reviewer. Static classifiers fail because moderation is **not an independent-decision problem** — removing a bot early stops a network attack; waiting for more evidence lets the campaign spread. Acting on node A cascades through the social graph to nodes B, C, and D.
+- [Why SocialGuard-RL](#why-socialguard-rl)
+- [Capabilities](#capabilities)
+- [Task tracks](#task-tracks)
+- [Environment contract](#environment-contract)
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
+- [Quick start](#quick-start)
+- [Run the API](#run-the-api)
+- [Use the environment in Python](#use-the-environment-in-python)
+- [Train with PPO](#train-with-ppo)
+- [Evaluate a baseline](#evaluate-a-baseline)
+- [Configuration](#configuration)
+- [Dashboard](#dashboard)
+- [Project video](#project-video)
+- [Testing and validation](#testing-and-validation)
+- [Security and responsible use](#security-and-responsible-use)
+- [Contributing](#contributing)
+- [License](#license)
 
-**SocialGuard-RL frames this correctly, as a sequential decision problem under uncertainty** — exactly the problem class where RL has outperformed classical ML at scale (protein folding, chip placement, game-playing). This environment is the training infrastructure that lets Llama-based agents learn that nuanced tradeoff.
+## Why SocialGuard-RL
 
----
+Moderation policies often have to trade off intervention accuracy, response speed, false-positive cost, collateral damage, and escalation to human review. SocialGuard-RL makes those trade-offs explicit in a controlled environment. The same five-action interface is shared across three tasks so that a policy can be compared across local account signals, spreading content, and graph-level coordination.
 
-## What It Does
+The environment is designed to make experiments inspectable. Episodes are seedable, task configuration is stored in YAML, per-step responses include structured information, and grading reports precision, recall, F1, reward, episode length, detection time, and collateral impact.
 
-SocialGuard-RL exposes a Gymnasium-compatible RL environment over a clean REST API, fully compliant with the OpenEnv specification. An agent sends a `POST /step` with an integer action (0–4) and receives an observation, a scalar reward, a termination flag, and a structured info dict. The grader at `GET /grade/{task}` runs 10 deterministic evaluation episodes and returns a normalized score in `[0.0, 1.0]`.
+## Capabilities
 
-### Three Task Tracks
+| Capability | Implementation | Evidence in repository |
+|---|---|---|
+| Reinforcement-learning environment | Gymnasium-compatible `SocialGuardEnv` | `env/env.py` |
+| HTTP serving | FastAPI application with OpenEnv-style endpoints | `server/app.py` |
+| Five-action moderation policy | `allow`, `warn`, `reduce_reach`, `remove`, `escalate` | `env/env.py`, `env/spaces.py` |
+| Synthetic social graphs | NetworkX graph generation and diffusion | `sim/`, `data/`, `tasks/` |
+| Reward accounting | Correctness, false-positive cost, collateral, speed, escalation | `env/rewards.py`, `configs/` |
+| Baseline grading | Deterministic rule-based `BaselineAgent` | `baseline.py`, `graders/grader.py` |
+| PPO training | Stable-Baselines3 PPO pipeline with optional curriculum | `training/train_ppo.py` |
+| Experiment dashboard | Streamlit dashboard and graph views | `dashboard/` |
+| Container deployment | Non-root Python 3.12 image on port `7860` | `Dockerfile` |
 
-| Task | Difficulty | Core Challenge | Grading Formula |
-|------|-----------|----------------|----------------|
-| `task_spam` | Easy | Feature-based binary moderation: 8-feature account fingerprint, 30% bot ratio with configurable signal overlap | `0.7 × F1 + 0.3 × sigmoid(mean_reward / 50)` |
-| `task_misinfo` | Medium | BFS content diffusion through a 500-node social graph; act early for the speed bonus or let misinformation spread | `0.6 × F1 + 0.4 × (1 − mean_hop / max_hops)` |
-| `task_cib` | Hard | Dismantle a hidden bot cluster embedded in a 500-node planted-partition graph; node2vec or spectral embeddings; collateral damage terminates the episode | `0.5 × recall + 0.5 × F1 − min(collateral_rate × 2, 0.5)` |
+## Task tracks
 
-### Agent Types
+Each task uses its own YAML configuration and is routed by the server through `TASK_CONFIG_MAP` in `server/app.py`.
 
-- **`BaselineAgent`** (`baseline.py`) — Deterministic rule-based heuristic using suspicion score thresholds. This is the performance floor the RL agent must beat.
-- **`SocialGuardPolicy`** (`model.py`) — Custom SB3 `ActorCriticPolicy` with `SocialGuardMlpExtractor`: 5 tabular dims + 384-dim sentence embedding (all-MiniLM-L6-v2 locally; Llama-4-Maverick-17B via HuggingFace Inference API when `HF_TOKEN` is set) → 389-dim input → [512 → 256 → 128] FC backbone → actor/critic heads.
-- **`LLMAgent`** (`inference.py`) — Calls any OpenAI-compatible endpoint (e.g., HuggingFace Inference API with Llama-4-Maverick) to pick an action from the observation JSON. Runs all 3 tasks end-to-end in < 20 minutes.
+| Task | Difficulty | Scenario | Primary evaluation signal |
+|---|---:|---|---|
+| `task_spam` | Easy | Classify synthetic accounts from an eight-feature fingerprint. | `0.7 × F1 + 0.3 × sigmoid(mean_reward / 50)` |
+| `task_misinfo` | Medium | Follow misinformation as it diffuses through a social graph and decide when to intervene. | `0.6 × F1 + 0.4 × max(0, 1 − mean_hop / max_hops)` |
+| `task_cib` | Hard | Identify a hidden coordinated inauthentic behavior cluster while limiting collateral damage. | `0.5 × recall + 0.5 × F1 − min(collateral_rate × 2, 0.5)` |
 
----
+The tasks are synthetic and configurable. The `task_cib` environment supports spectral embeddings by default and includes an optional node2vec path with a cache directory controlled by `SOCIALGUARD_NODE2VEC_CACHE_DIR`.
 
-## Architecture
+## Environment contract
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        SocialGuard-RL                           │
-│                                                                  │
-│  ┌──────────┐   POST /reset    ┌─────────────────────────────┐  │
-│  │          │ ───────────────► │      SocialGuardEnv         │  │
-│  │  Agent   │                  │  ┌─────────────────────┐    │  │
-│  │ (LLM /   │   POST /step     │  │  Task Router        │    │  │
-│  │  PPO /   │ ───────────────► │  │  task_spam          │    │  │
-│  │ Baseline)│                  │  │  task_misinfo       │    │  │
-│  │          │ ◄─────────────── │  │  task_cib           │    │  │
-│  └──────────┘  obs + reward +  │  └─────────────────────┘    │  │
-│                terminated +     │  ┌─────────────────────┐    │  │
-│                info             │  │  RewardEngine       │    │  │
-│                                  │  │  α·correctness      │    │  │
-│  ┌──────────┐                  │  │  −β·fp_cost          │    │  │
-│  │ Grader   │  GET /grade/{t}  │  │  −γ·collateral       │    │  │
-│  │[0.0,1.0] │ ───────────────► │  │  +δ·speed_bonus      │    │  │
-│  └──────────┘                  │  │  −ε·escalation       │    │  │
-│                                  │  └─────────────────────┘    │  │
-│  ┌──────────────────────────┐  └─────────────────────────────┘  │
-│  │  Streamlit Dashboard     │                                    │
-│  │  - SocialGuard Live Inference│  ┌─────────────────────────────┐  │
-│  │  - Learning Curve Charts │  │  Social Graph (NetworkX)    │  │
-│  │  - Network Graph (pyvis) │  │  Planted-partition model    │  │
-│  │  - Reward Breakdown      │  │  node2vec / spectral embeds │  │
-│  └──────────────────────────┘  └─────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
+### Observation space
 
-### Observation Space
+The environment exposes a fixed `Box(float32, shape=(68,))` observation vector. Shorter task-specific feature sets are zero-padded so that a policy can use one stable input shape across all tracks.
 
-All tasks share a fixed `Box(float32, shape=(68,))` observation vector. Tasks with fewer features zero-pad to 68 dims — the SB3 policy network always sees the same input shape.
+| Task | Active feature range | Example signals |
+|---|---:|---|
+| Spam | `0–7` | Account age, posting rate, follower ratio, login-time variance, repetition, profile completeness, device uniqueness, and IP diversity. |
+| Misinformation | `0–5` | Spread rate, fact-check flag, engagement ratio, source credibility, hop count, and normalized timestep. |
+| CIB | `0–67` | A 64-dimensional graph embedding plus centrality, clustering, community, and normalized posting-rate features. |
 
-| Task | Active Dims | Key Features |
-|------|-------------|-------------|
-| Spam | 0–7 | `account_age_days`, `posts_per_hour`, `follower_ratio`, `login_time_variance`, `content_repetition_score`, `profile_completeness`, `device_fingerprint_uniqueness`, `ip_diversity_score` |
-| Misinfo | 0–5 | `spread_rate`, `fact_check_flag`, `engagement_ratio`, `source_credibility`, `hop_count` (normalized), `timestep_normalized` |
-| CIB | 0–67 | `embedding_0`…`embedding_63` (node2vec/spectral, L2-normalized), `degree_centrality`, `clustering_coefficient`, `community_assignment`, `posts_per_hour_normalized` |
+### Action space
 
-### Action Space
+`Discrete(5)` is shared across all tasks.
 
-`Discrete(5)` — shared across tasks. Invalid actions incur `escalation_penalty = 2.0`.
+| ID | Action | Meaning |
+|---:|---|---|
+| `0` | `allow` | Take no moderation action. |
+| `1` | `warn` | Add a warning intervention. |
+| `2` | `reduce_reach` | Limit distribution without removing the item or account. |
+| `3` | `remove` | Remove the item or account from the simulated surface. |
+| `4` | `escalate` | Send the case for human review when the task supports escalation. |
 
-| ID | Name | Task 1 | Task 2 | Task 3 |
-|----|------|--------|--------|--------|
-| 0 | `allow` | ✅ | ✅ | ✅ |
-| 1 | `warn` | ✅ | ✅ | ✅ |
-| 2 | `reduce_reach` | ✅ | ✅ | ✅ |
-| 3 | `remove` | ✅ | ✅ | ✅ |
-| 4 | `escalate` | ❌ | ✅ | ✅ |
+### Reward model
 
----
+The reward engine is configured in YAML and reports a structured breakdown in the step `info` payload:
 
-## Quick Start
-
-### Docker (recommended)
-
-```bash
-docker build -t SocialGuard-RL .
-docker run -p 7860:7860 \
-  -e HF_TOKEN="hf_your_token_here" \
-  -e MODEL_NAME="meta-llama/Llama-4-Maverick-17B-128E-Instruct" \
-  -e API_BASE_URL="https://api-inference.huggingface.co/v1" \
-  SocialGuard-RL
-```
-
-### Local
-
-```bash
-git clone https://github.com/vincenzo-afk/SocialGuard-RL.git
-cd SocialGuard-RL
-pip install -r requirements.txt
-
-# Start the OpenEnv server
-uvicorn server:app --host 0.0.0.0 --port 7860
-```
-
-### API
-
-```bash
-# Reset to a new episode (task_spam)
-curl -s -X POST http://localhost:7860/reset \
-  -H "Content-Type: application/json" \
-  -d '{"task": "task_spam", "seed": 42}' | python3 -m json.tool
-
-# Take a moderation action (action 3 = remove)
-curl -s -X POST http://localhost:7860/step \
-  -H "Content-Type: application/json" \
-  -d '{"task": "task_spam", "action": 3}' | python3 -m json.tool
-
-# Grade the baseline agent on task_cib
-curl http://localhost:7860/grade/task_cib
-
-# Grade all three tasks at once
-curl http://localhost:7860/grade/all
-
-# Health check
-curl http://localhost:7860/healthz
-```
-
-### Run the LLM Inference Script
-
-```bash
-export API_BASE_URL="https://api-inference.huggingface.co/v1"
-export MODEL_NAME="meta-llama/Llama-4-Maverick-17B-128E-Instruct"
-export HF_TOKEN="hf_your_token_here"
-python inference.py
-```
-
-Stdout format (required by OpenEnv):
-```
-[START] task=task_spam env=SocialGuard-RL model=meta-llama/Llama-4-Maverick-17B-128E-Instruct
-[STEP]  step=1 action=allow reward=0.00 done=false error=null
-[STEP]  step=2 action=remove reward=1.28 done=false error=null
-...
-[END]   success=true steps=200 rewards=0.00,1.28,...
-```
-
-### Launch the Dashboard
-
-```bash
-streamlit run dashboard/app.py
-```
-
-### Train with PPO
-
-```bash
-# Task 1
-python training/train_ppo.py --config configs/task1.yaml --run_name ppo_spam --n_envs 4
-
-# Task 3 with curriculum learning (required — do NOT train from scratch)
-python training/train_ppo.py --config configs/task3.yaml --run_name ppo_cib --curriculum
-```
-
----
-
-## Benchmarks
-
-### Baseline Agent (rule-based, `seed=42`, 100 episodes)
-
-| Task | Precision | Recall | F1 | Mean Reward | Normalized Score |
-|------|-----------|--------|-----|-------------|-----------------|
-| `task_spam` | 1.00 | 0.95 | 0.98 | 75.1 | **0.93** |
-| `task_misinfo` | 1.00 | 1.00 | 1.00 | 0.8 | **1.00** |
-| `task_cib` | 0.00 | 0.00 | 0.00 | 0.0 | **0.00** |
-
-### SocialGuard PPO Agent Training Progress (from `training_log.csv`)
-
-| Cycle | Episodes | TP Rate | FP Rate | Mean Reward | Policy Entropy |
-|-------|----------|---------|---------|-------------|---------------|
-| 1 | 10 | 0.52 | 0.28 | 12.50 | 1.55 |
-| 3 | 30 | 0.64 | 0.18 | 22.10 | 1.21 |
-| 5 | 50 | 0.76 | 0.11 | 29.40 | 0.85 |
-| 8 | 80 | 0.88 | 0.04 | 38.90 | 0.39 |
-| 10 | 100 | 0.93 | 0.02 | 43.50 | 0.25 |
-
-TP rate rises from 0.52 → **0.93** (+79%). FP rate drops from 0.28 → **0.02** (−93%). Policy entropy collapses as the agent becomes decisively selective — exactly the behavior profile a production content moderation system needs.
-
----
-
-## Built for Meta's AI Safety Mission
-
-Meta's content moderation teams process **hundreds of billions of content decisions per year** across Facebook, Instagram, WhatsApp, and Threads. The challenge is not binary classification — it is sequential policy under adversarial conditions: bot networks adapt, misinformation mutates, and coordinated campaigns evolve their tactics faster than human reviewers can respond.
-
-SocialGuard-RL is purpose-built to be the simulation layer that trains the next generation of Meta Llama-powered moderation agents:
-
-**Llama-4-Maverick as the Policy Network.** `inference.py` uses the OpenAI client interface to call any Llama endpoint. The `LLMAgent` class formats the 68-dim observation vector as a JSON prompt, calls `meta-llama/Llama-4-Maverick-17B-128E-Instruct` via the HuggingFace Inference API, and parses the action (0–4) from the response. Drop in Meta's internal endpoint and the infrastructure is ready.
-
-**Reward Engineering That Reflects Meta's Values.** The `RewardEngine` (`env/rewards.py`) encodes a precise policy:
-- `α · correctness` — reward correct threat detection
-- `−β · fp_cost` — penalize false positives proportional to user legitimacy (a verified account costs more to wrongly remove than a new account)
-- `−γ · collateral_damage` — separately tunable penalty for removing legitimate users
-- `+δ · speed_bonus` — early intervention is rewarded for spread-timing tasks; this is what prevents misinformation from reaching a million users before action is taken
-- `−ε · escalation_penalty` — agents learn to reserve human review for genuinely uncertain cases
-
-**Scales to Meta's Graph Topology.** Task 3 uses the planted partition model (`networkx.stochastic_block_model`) to embed a hidden bot cluster inside a large social graph — a direct analog to the coordinated inauthentic behavior networks that Meta's Trust & Safety team dismantles. Node embeddings are computed via spectral decomposition (< 5 seconds on CPU) or node2vec (richer, slower), and the agent must reason over 64-dimensional graph structure features to find the cluster without the collateral damage of mass removals.
-
-**Drop-in Training Infrastructure.** The Gymnasium API, Stable-Baselines3 compatibility, Docker container, and OpenEnv REST interface mean any team can spin this up on Meta's internal compute, swap in their own model checkpoint, and run curriculum-scheduled training on progressively harder graph sizes — exactly the scaling curriculum needed to produce a robust policy.
-
-> *"AI is the defining technology of our time. We're going to invest heavily in it."* — Mark Zuckerberg, 2024. SocialGuard-RL is the training environment that turns that investment into a safer platform.
-
----
-
-## Reward Function
-
-```
+```text
 R = α · correctness
-  − β · fp_cost
+  − β · false_positive_cost
   − γ · collateral_damage
   + δ · speed_bonus
   − ε · escalation_penalty
 ```
 
-All coefficients are YAML-configurable — no magic numbers in code.
+The exact coefficient values and task-specific overrides live in `configs/default.yaml`, `configs/task1.yaml`, `configs/task2.yaml`, and `configs/task3.yaml`.
 
-| Coefficient | Default | Meaning |
-|-------------|---------|---------|
-| `alpha` = 1.0 | Reward correct detection |
-| `beta` = 0.8 | Penalty for false positives, scaled by `legitimacy_score` |
-| `gamma` = 1.2 | Separate collateral damage penalty (heavier for CIB: 1.5) |
-| `delta` = 0.3 | Speed bonus — decays linearly from 1.0 (hop 0) to 0.0 (hop 20) |
-| `epsilon` = 0.1 | Escalation overuse penalty — grows with `escalation_count` |
+## Architecture
 
----
-
-## Project Structure
-
+```mermaid
+flowchart LR
+    A[Agent\nPPO / baseline / LLM client] -->|reset and step| B[FastAPI OpenEnv server]
+    B --> C[SocialGuardEnv\n68-dim observation]
+    C --> D{Task router}
+    D --> E[task_spam]
+    D --> F[task_misinfo]
+    D --> G[task_cib]
+    C --> H[RewardEngine]
+    H --> I[Reward breakdown and termination]
+    B --> J[Grader]
+    J --> K[Precision / recall / F1 / score]
+    L[Streamlit dashboard] --> B
 ```
+
+The HTTP service initializes one environment and lock per task. `POST /reset` starts an episode, `POST /step` advances it, and `GET /grade/{task_name}` runs the isolated rule-based baseline grader for a selected task. When `SOCIALGUARD_API_TOKEN` is set, protected endpoints require an `Authorization: Bearer <token>` header; metadata endpoints such as `/healthz` remain public.
+
+## Repository layout
+
+```text
 SocialGuard-RL/
-│
-├── inference.py             # OpenAI-client inference script (Llama integration)
-├── server.py                # FastAPI OpenEnv HTTP server
-├── baseline.py              # Rule-based heuristic agent (benchmark)
-├── evaluate.py              # Baseline vs trained model comparison
-├── agent.py                 # SocialGuard-RL training agent + inference runner
-├── model.py                 # SocialGuardPolicy, SocialGuardMlpExtractor, Llama API call
-├── openenv.yaml             # OpenEnv metadata + task registry
-│
-├── env/
-│   ├── env.py               # Core gymnasium.Env — SocialGuardEnv
-│   ├── spaces.py            # Observation (68,) + Action Discrete(5) spaces
-│   ├── rewards.py           # RewardEngine — 5-component reward with config coefficients
-│   └── models.py            # Pydantic v2 models for server validation
-│
-├── sim/
-│   ├── social_graph.py      # NetworkX planted-partition graph, tick(), remove_node()
-│   ├── user_behavior.py     # HumanBehavior + BotBehavior with configurable noise
-│   └── content_gen.py       # BFS content spread simulation (Post + ContentEngine)
-│
-├── tasks/
-│   ├── base_task.py         # Abstract BaseTask interface
-│   ├── task_spam.py         # Task 1 — account queue with bot ratio
-│   ├── task_misinfo.py      # Task 2 — BFS spread + timing bonus
-│   └── task_cib.py          # Task 3 — graph RL with node2vec/spectral embeddings
-│
-├── graders/
-│   └── grader.py            # Grader.evaluate() + normalized_score() + compare_agents()
-│
-├── training/
-│   ├── train_ppo.py         # PPO entry point (SubprocVecEnv, EvalCallback)
-│   ├── train_dqn.py         # DQN entry point
-│   ├── callbacks.py         # TensorboardCallback + CurriculumCallback
-│   └── curriculum.py        # 3-phase CIB curriculum schedule
-│
-├── dashboard/
-│   ├── app.py               # Streamlit dashboard (11 tabs)
-│   ├── graph_view.py        # Pyvis network graph + decision log injection
-│   └── metrics_view.py      # Reward + decision charts
-│
-├── data/
-│   └── synthetic_graph.py   # Deterministic graph fixtures for tests
-│
-├── tests/
-│   ├── test_env.py          # gymnasium.utils.env_checker + 1000-step random agent
-│   ├── test_rewards.py      # RewardEngine unit tests (8 test classes)
-│   ├── test_tasks.py        # Task-specific tests (TaskSpam, TaskMisinfo, TaskCIB)
-│   ├── test_graph.py        # SocialGraph contract tests
-│   ├── test_grader.py       # Grader normalized_score bounds + baseline smoke
-│   ├── test_training.py     # PPO/DQN smoke tests
-│   ├── test_curriculum.py   # Curriculum override tests
-│   └── test_socialguard.py      # SocialGuardNetBackbone + SocialGuardMlpExtractor + PPO tests
-│
-├── configs/
-│   ├── default.yaml         # Base defaults — all keys documented
-│   ├── task1.yaml           # Spam: max_steps=200, bot_ratio=0.30, delta=0.3
-│   ├── task2.yaml           # Misinfo: delta=0.5 (stronger speed bonus)
-│   ├── task3.yaml           # CIB: gamma=1.5, collateral_threshold=10
-│   └── inference.yaml       # Slim: num_nodes=100, embedding_method=spectral
-│
-├── scripts/
-│   └── pre_validate.sh      # Docker build + API smoke test + inference format check
-│
-├── Dockerfile               # python:3.12-slim, CMD uvicorn server:app --port 7860
-├── requirements.txt
-├── requirements-prod.txt
-├── requirements-training.txt
-└── openenv.yaml
+├── env/                 # Core Gymnasium environment, models, spaces, rewards
+├── tasks/               # Spam, misinformation, and CIB task implementations
+├── sim/                 # Synthetic content, graph, and user-behavior generators
+├── data/                # Synthetic graph utilities
+├── graders/             # Evaluation metrics and normalized scores
+├── training/            # PPO training, curriculum, and callbacks
+├── dashboard/           # Streamlit dashboard and graph/metrics views
+├── configs/             # Default and per-task YAML configuration
+├── tests/               # Pytest suite
+├── video/               # Editable HyperFrames composition and rendered overview
+├── server/app.py        # FastAPI application
+├── baseline.py          # Deterministic rule-based baseline agent
+├── inference.py         # OpenAI-compatible model client example
+├── Dockerfile           # Production container definition
+├── openenv.yaml         # OpenEnv metadata registry
+└── pyproject.toml       # Package metadata and server entry point
 ```
 
----
+## Quick start
 
-## Roadmap
+### Prerequisites
 
-### Phase 1 — Foundation ✅
-- [x] `env/spaces.py` — Unified `Box(68,)` observation + `Discrete(5)` action space
-- [x] `env/rewards.py` — 5-component `RewardEngine` with config-driven coefficients
-- [x] `sim/user_behavior.py` — `HumanBehavior` + `BotBehavior` with noise overlap
+Use Python `3.10` or newer. Python `3.12` is the version used by the repository Docker image. Docker is optional for local development; a local installation needs the packages listed in `requirements.txt`.
 
-### Phase 2 — Task 1 Loop ✅
-- [x] `tasks/base_task.py` + `tasks/task_spam.py` — Account queue with configurable bot ratio
-- [x] `env/env.py` — Core `SocialGuardEnv` gymnasium API compliance
-- [x] `baseline.py` — Rule-based `BaselineAgent` (performance floor)
-
-### Phase 3 — Simulation ✅
-- [x] `sim/social_graph.py` — NetworkX planted-partition graph
-- [x] `sim/content_gen.py` — BFS content spread simulation
-- [x] `tasks/task_misinfo.py` — Task 2 with timing reward
-
-### Phase 4 — Task 3 + Graph RL ✅
-- [x] `tasks/task_cib.py` — 500-node graph RL with node2vec embeddings
-- [x] `_compute_embeddings_spectral()` — Fast spectral fallback (< 5 sec on 500 nodes)
-
-### Phase 5 — Training ✅
-- [x] `training/callbacks.py` — `TensorboardCallback` + `CurriculumCallback`
-- [x] `training/train_ppo.py` + `training/train_dqn.py` — Full SB3 training pipelines
-- [x] `training/curriculum.py` — 3-phase curriculum: 150 → 300 → 500 nodes
-
-### Phase 6 — Evaluation ✅
-- [x] `graders/grader.py` — Deterministic evaluation with normalized scores
-- [x] `evaluate.py` — Baseline vs trained model side-by-side comparison
-
-### Phase 7 — OpenEnv API ✅
-- [x] `server.py` — FastAPI `/reset`, `/step`, `/state`, `/grade/{task}`, `/grade/all`, `/healthz`, `/metrics`
-- [x] `inference.py` — LLM inference with `[START]`/`[STEP]`/`[END]` stdout protocol
-- [x] `openenv.yaml` — OpenEnv metadata registry
-
-### Phase 8 — Dashboard ✅
-- [x] `dashboard/app.py` — 11-tab Streamlit dashboard
-- [x] `dashboard/graph_view.py` — Pyvis network + decision log injection
-- [x] SocialGuard PPO training from UI + live checkpoint browser
-
-### Phase 9 — Hardening 🔲
-- [ ] Full test coverage for `grader.py`, `callbacks.py`, `baseline.py`
-- [ ] BUG-1: Per-step FN inflation in grader metrics
-- [ ] BUG-2: Race condition in `server.py` environment registry
-- [ ] Pin PyTorch version in `requirements-prod.txt`
-- [ ] Add Docker health check for GPU availability
-- [ ] Authenticated dashboard (`SOCIALGUARD_DASHBOARD_TOKEN` wired)
-
----
-
-## Development
+### Install locally
 
 ```bash
-# Run full test suite
-pytest tests/ -v
+git clone https://github.com/vincenzo-afk/SocialGuard-RL.git
+cd SocialGuard-RL
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
-# Lint + format
-black .
-ruff check .
+### Start the server
 
-# gymnasium env_checker
-python -c "
-from gymnasium.utils.env_checker import check_env
+```bash
+uvicorn server.app:app --host 0.0.0.0 --port 7860
+```
+
+Open the interactive API documentation at [http://localhost:7860/docs](http://localhost:7860/docs) after the server starts.
+
+### Run with Docker
+
+```bash
+docker build -t socialguard-rl .
+docker run --rm -p 7860:7860 socialguard-rl
+```
+
+Optional model-client settings can be passed at runtime when using `inference.py`:
+
+```bash
+docker run --rm -p 7860:7860 \
+  -e API_BASE_URL="https://api-inference.huggingface.co/v1" \
+  -e MODEL_NAME="meta-llama/Llama-4-Maverick-17B-128E-Instruct" \
+  -e HF_TOKEN="hf_your_token_here" \
+  socialguard-rl
+```
+
+## Run the API
+
+The following commands assume the server is running on `localhost:7860`.
+
+```bash
+# Start a seeded spam episode.
+curl -s -X POST http://localhost:7860/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task":"task_spam","seed":42}' | python3 -m json.tool
+
+# Take action 3 (remove) in the active spam episode.
+curl -s -X POST http://localhost:7860/step \
+  -H "Content-Type: application/json" \
+  -d '{"task":"task_spam","action":3}' | python3 -m json.tool
+
+# Inspect the active task state.
+curl -s "http://localhost:7860/state?task=task_spam" | python3 -m json.tool
+
+# Read the task configuration.
+curl -s http://localhost:7860/config/task_cib | python3 -m json.tool
+
+# Run the baseline grader for one task or all tasks.
+curl -s "http://localhost:7860/grade/task_cib?n_episodes=10&seed=42" | python3 -m json.tool
+curl -s "http://localhost:7860/grade/all?n_episodes=10&seed=42" | python3 -m json.tool
+
+# Check service health and Prometheus-style metrics.
+curl -s http://localhost:7860/healthz | python3 -m json.tool
+curl -s http://localhost:7860/metrics
+```
+
+The `/step` response includes the next observation, scalar reward, `terminated`, `truncated`, and an `info` object containing task-specific signals and reward details. Call `/reset` before calling `/step` for a task.
+
+## Use the environment in Python
+
+```python
 from env.env import SocialGuardEnv
-check_env(SocialGuardEnv('configs/task1.yaml'), warn=True, skip_render_check=True)
-print('env_checker passed')
-"
 
-# Pre-submission validation
+env = SocialGuardEnv("configs/task1.yaml", seed=42)
+observation, info = env.reset(seed=42)
+
+for _ in range(10):
+    action = 0
+    observation, reward, terminated, truncated, info = env.step(action)
+    if terminated or truncated:
+        break
+
+env.close()
+```
+
+## Train with PPO
+
+The training entry point loads `configs/default.yaml`, optionally merges a task-specific YAML file, writes the merged configuration into the run directory, evaluates during training, and saves the final model as `final_model.zip`.
+
+```bash
+# Default configuration.
+python training/train_ppo.py \
+  --config configs/default.yaml \
+  --run_name ppo_default
+
+# Task-specific spam training with four environments.
+python training/train_ppo.py \
+  --config configs/default.yaml \
+  --task_config configs/task1.yaml \
+  --run_name ppo_spam \
+  --n_envs 4
+
+# Task 3 curriculum training. The trainer forces one environment for task_cib.
+python training/train_ppo.py \
+  --config configs/default.yaml \
+  --task_config configs/task3.yaml \
+  --run_name ppo_cib \
+  --curriculum
+```
+
+Useful flags include `--output_dir`, `--device`, `--n_envs`, and `--curriculum`. Generated model artifacts are written below `models/`, which is ignored by Git.
+
+## Evaluate a baseline
+
+The server’s grading routes run the deterministic `BaselineAgent` in an isolated worker process. The grader reports precision, recall, F1, mean reward, mean episode length, time to detection, mean collateral, and a normalized score for each task. Use the API examples above for a repeatable seeded evaluation.
+
+The scoring implementation is in `graders/grader.py`, while the public route and score-formula map are in `server/app.py`.
+
+## Configuration
+
+Configuration is organized by concern:
+
+| File | Purpose |
+|---|---|
+| `configs/default.yaml` | Shared environment, reward, graph, and training defaults. |
+| `configs/task1.yaml` | Spam-account task overrides. |
+| `configs/task2.yaml` | Misinformation-diffusion task overrides. |
+| `configs/task3.yaml` | CIB graph task overrides. |
+| `configs/inference.yaml` | Model-client inference settings. |
+| `openenv.yaml` | Service metadata, routes, and task registry. |
+
+For deployments that need request authentication, set `SOCIALGUARD_API_TOKEN` in the process environment. Do not commit `.env` files or real credentials; `.env.example` documents the expected local pattern.
+
+## Dashboard
+
+The repository includes a Streamlit dashboard for metrics, learning curves, and graph views. Start it from the repository root:
+
+```bash
+streamlit run dashboard/app.py
+```
+
+The dashboard is a local research interface. It should not be treated as an authorization layer or as a replacement for independent evaluation.
+
+## Project video
+
+The repository includes a **26-second editable HTML overview video** and a rendered MP4 preview. The composition is self-contained, uses a deterministic GSAP timeline, and is built around the actual SocialGuard-RL task tracks and API contract.
+
+<video controls muted playsinline width="100%" poster="https://raw.githubusercontent.com/vincenzo-afk/SocialGuard-RL/main/learning_curve.png">
+  <source src="./video/socialguard-rl-overview.mp4" type="video/mp4" />
+  Your browser does not support embedded video. [Download the MP4 preview](./video/socialguard-rl-overview.mp4).
+</video>
+
+If the GitHub renderer does not play the inline preview, use these repository files directly:
+
+- [Editable HTML composition](video/index.html)
+- [Motion-intent assertions](video/index.motion.json)
+- [Rendered MP4 preview](video/socialguard-rl-overview.mp4)
+- [Video workspace manifest](video/package.json)
+
+To validate or re-render the composition locally, install Node.js 22 or newer and run:
+
+```bash
+cd video
+npm install
+npm run check
+npm run render
+```
+
+## Testing and validation
+
+Run the Python test suite from the repository root:
+
+```bash
+pytest
+```
+
+The repository also includes a pre-validation script for environments that provide Docker, `curl`, Python, and `jq`:
+
+```bash
 bash scripts/pre_validate.sh
 ```
 
----
+The HTML video has an independent validation gate:
+
+```bash
+cd video
+npm run check
+```
+
+The checked composition passes HyperFrames lint, runtime, layout, motion, and contrast validation. The rendered MP4 is 26.0 seconds and is stored at `video/socialguard-rl-overview.mp4`.
+
+## Security and responsible use
+
+SocialGuard-RL generates synthetic scenarios for experimentation. Do not connect it to real moderation queues, real user records, or production enforcement systems without an independent safety, privacy, security, and policy review.
+
+Keep API tokens in environment variables or a secret manager. The server supports optional bearer-token protection through `SOCIALGUARD_API_TOKEN`; never place tokens in YAML committed to the repository, shell scripts, README examples, or issue reports. Security issues should be reported privately to the repository owner through GitHub rather than disclosed in a public issue.
+
+## Contributing
+
+Contributions should preserve deterministic seeds, update the relevant YAML configuration or tests, and document any changed API or score behavior. Before opening a pull request, run the relevant pytest tests and ensure that README commands match the current implementation. Keep generated model checkpoints, caches, credentials, and local video dependencies out of commits.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+SocialGuard-RL is released under the [MIT License](LICENSE). The project’s copyright notice is maintained in the root `LICENSE` file.
 
-## Contributors
+## References
 
-Built by **vincenzo-afk** for the **Meta Llama Impact Hackathon 2026**.
-
----
-
-## Citation
-
-```bibtex
-@software{socialguard_rl_2026,
-  author  = {vincenzo-afk},
-  title   = {SocialGuard-RL: An OpenEnv Environment for Social Media Integrity Moderation},
-  year    = {2026},
-  url     = {https://huggingface.co/spaces/vincenzo-afk/SocialGuard-RL},
-  note    = {Meta Llama Impact Hackathon 2026}
-}
-```
+1. [Gymnasium documentation](https://gymnasium.farama.org/) — environment API and spaces.
+2. [FastAPI documentation](https://fastapi.tiangolo.com/) — HTTP API framework used by `server/app.py`.
+3. [Stable-Baselines3 documentation](https://stable-baselines3.readthedocs.io/) — PPO training implementation used by `training/train_ppo.py`.
+4. [NetworkX documentation](https://networkx.org/documentation/stable/) — graph construction and analysis utilities.
+5. [OpenEnv repository](https://github.com/meta-pytorch/OpenEnv) — OpenEnv ecosystem reference.
+6. [GitHub repository topics guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics) — topic naming and limits.

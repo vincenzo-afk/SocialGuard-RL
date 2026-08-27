@@ -1,0 +1,14 @@
+{
+  "duration": 26,
+  "assertions": [
+    { "kind": "appearsBy", "selector": "#intro-title", "bySec": 1.5 },
+    { "kind": "appearsBy", "selector": "#tasks-title", "bySec": 5.2 },
+    { "kind": "appearsBy", "selector": "#api-panel", "bySec": 12.0 },
+    { "kind": "appearsBy", "selector": "#training-title", "bySec": 17.2 },
+    { "kind": "appearsBy", "selector": "#close-title", "bySec": 23.2 },
+    { "kind": "before", "a": "#intro-title", "b": "#intro-pill" },
+    { "kind": "staysInFrame", "selector": "#task-cib" },
+    { "kind": "staysInFrame", "selector": ".api-panel" },
+    { "kind": "keepsMoving", "withinSelector": "#root", "maxStaticSec": 2 }
+  ]
+}

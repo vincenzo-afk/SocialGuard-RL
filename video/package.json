@@ -1,0 +1,15 @@
+{
+  "name": "socialguard-rl-video",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Editable HyperFrames overview video for SocialGuard-RL.",
+  "scripts": {
+    "check": "npx hyperframes check",
+    "preview": "npx hyperframes preview",
+    "render": "npx hyperframes render --quality high --output socialguard-rl-overview.mp4"
+  },
+  "dependencies": {
+    "gsap": "^3.14.2",
+    "hyperframes": "latest"
+  }
+}
